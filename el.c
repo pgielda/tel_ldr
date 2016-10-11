@@ -83,11 +83,46 @@ struct {
   {0,0},
 };
 
+#define DT_NULL         0
+#define DT_NEEDED       1
+#define DT_PLTRELSZ     2
+#define DT_PLTGOT       3
+#define DT_HASH         4
+#define DT_STRTAB       5
+#define DT_SYMTAB       6
+#define DT_RELA         7
+#define DT_RELASZ       8
+#define DT_RELAENT      9
+#define DT_STRSZ        10
+#define DT_SYMENT       11
+#define DT_INIT         12
+#define DT_FINI         13
+#define DT_SONAME       14
+#define DT_RPATH        15
+#define DT_SYMBOLIC     16
+#define DT_REL          17
+#define DT_RELSZ        18
+#define DT_RELENT       19
+#define DT_PLTREL       20
+#define DT_DEBUG        21
+#define DT_TEXTREL      22
+#define DT_JMPREL       23
+#define DT_ENCODING     32
+
+#define PT_NULL    0
+#define PT_LOAD    1
+#define PT_DYNAMIC 2
+#define PT_INTERP  3
+#define PT_NOTE    4
+#define PT_SHLIB   5
+#define PT_PHDR    6
+#define PT_TLS     7
+
 int main(int argc, char* argv[]) {
   int i;
   int fd, len;
   char* elf;
-  int entry, phoff, phnum;
+  int entry, phoff, phnum, init;
   int* ph;
   if (argc < 2)
     error("Usage: el <elf>");
@@ -120,7 +155,7 @@ int main(int argc, char* argv[]) {
     pflag = ph[6];
     /*palign = ph[7];*/
     switch (ph[0]) {
-    case 1: {
+    case PT_LOAD: {
       int prot = 0;
       if (pflag & 1)
         prot |= PROT_EXEC;
@@ -156,7 +191,7 @@ int main(int argc, char* argv[]) {
       }
       break;
     }
-    case 2: {
+    case PT_DYNAMIC: {
       char* dyn;
       char* dstr = NULL;
       char* dsym = NULL;
@@ -167,52 +202,57 @@ int main(int argc, char* argv[]) {
       puts("PT_DYNAMIC");
       dyn = elf + poff;
       for (;;) {
-        short dtag = *(short*)dyn;
+        unsigned short dtag = *(unsigned short*)dyn;
         int dval = *(int*)(dyn + 4);
         dyn += 8;
         if (dtag == 0)
           break;
         switch (dtag) {
-        case 1: {  /* DT_NEEDED */
+	case DT_INIT: {
+	   init = dval;
+	   break;
+	}
+        case DT_NEEDED: {  /* DT_NEEDED */
           *neededp++ = dval;
+	  break;
         }
-        case 2: {
+        case DT_PLTRELSZ: {
           pltrelsz = dval;
           printf("pltrelsz: %d\n", pltrelsz);
           break;
         }
-        case 5: {
+	case DT_STRTAB: {
           dstr = (char*)dval;
           printf("dstr: %p %s\n", dstr, dstr+1);
           break;
         }
-        case 6: {
+        case DT_SYMTAB: {
           dsym = (char*)dval;
           printf("dsym: %p\n", dsym);
           break;
         }
-        case 17: {
+        case DT_REL: {
           rel = (char*)dval;
           printf("rel: %p\n", rel);
           break;
         }
-        case 18: {
+        case DT_RELSZ: {
           relsz = dval;
           printf("relsz: %d\n", relsz);
           break;
         }
-        case 19: {
+        case DT_RELENT: {
           relent = dval;
           printf("relent: %d\n", relent);
           break;
         }
-        case 20: {
+        case DT_PLTREL: {
           pltrel = (char*)dval;
           printf("pltrel: %p\n", pltrel);
           break;
         }
         default:
-          printf("unknown DYN %d %d\n", dtag, dval);
+          printf("unknown DYN dtag=%d dval=%X\n", dtag, dval);
         }
       }
       if (!dsym || !dstr) {
@@ -222,11 +262,11 @@ int main(int argc, char* argv[]) {
       for (neededp = needed; *neededp; neededp++) {
         printf("needed: %s", dstr + *neededp);
 	/* TODO: temporarily we are not loading the libs */
-      /*  if (dlopen(dstr + *neededp, RTLD_NOW | RTLD_GLOBAL) == NULL) {
+        if (dlopen(dstr + *neededp, RTLD_NOW | RTLD_GLOBAL) == NULL) {
 		printf(" (not found)\n");
 	} else {
 		printf(" (loaded)\n");
-	}*/
+	}
 	printf(" (omitted)\n");
       }
 
@@ -249,16 +289,8 @@ int main(int argc, char* argv[]) {
                  break;
               }
             }
+
             if(!val){
-              if (!strcmp(sname,"stdout"))
-                val = &stdout;
-              else if (!strcmp(sname,"stderr"))
-                val = &stderr;
-              /*
-              else if (!strcmp(sname, "__environ"))
-                val = &environ;
-              */
-              else
                 val = dlsym(RTLD_DEFAULT, sname);
             }
 
@@ -267,15 +299,18 @@ int main(int argc, char* argv[]) {
 
             switch (type) {
             case 1: {
-              *addr += (int)val;
+	      if (val)
+                *addr += (int)val;
+	      break;
             }
             case 5: {
               if (val) {
                 *addr = *(int*)val;
               } else {
                 fprintf(stderr, "undefined function %s\n", sname);
-             /*  abort(); */
+		*addr = (int)&undefined;
               }
+	      break;
             }
             case 6: {
               if (val) {
@@ -307,13 +342,15 @@ int main(int argc, char* argv[]) {
       break;
     }
     default:
-      printf("unknown PT %d\n", ph[0]);
+      printf("unknown PT 0x%X\n", ph[0]);
     }
     ph += 8;
   }
 
   g_argc = argc-1;
   g_argv = argv+1;
+  printf("init...\n");
+  ((void*(*)())init)();
   printf("start!: %s %x\n", argv[1], entry);
   ((void*(*)(int, char**))entry)(argc, argv);
   return 1;
