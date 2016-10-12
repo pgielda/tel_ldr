@@ -7,7 +7,7 @@ echo '#endif'
 printf '#define asm_f(x) void Aundefined_##x () { __asm__("call " prefix "undefined_" #x "\\njmp *%%eax"); }'
 echo
 echo '#define undefi_name(x) undefined_ ##x'
-printf '#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function %%d (%%s), pointing to 0x%08X\\n", x, functions[x].name, functions[x].pointer); return (void*)functions[x].pointer; }'
+printf '#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function %%d (%%s), pointing to 0x%%08X\\n", x, functions[x].name, functions[x].pointer); return (void*)functions[x].pointer; }'
 echo
 echo
 
