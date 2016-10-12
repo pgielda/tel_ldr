@@ -26,6 +26,7 @@ int symbol_get_size(void *ptr) {
          return elf_info->st_size;
 }
 #elif __MACH__
+#include <stdarg.h>
 #include <crt_externs.h>
 int symbol_get_size(void *ptr) {
 	return 4;
@@ -460,6 +461,12 @@ char *textdomain(const char *domainname) {
 	return NULL;
 }
 
+char *dcgettext(const char *domainname, const char *msgid, int category)
+{
+	return (char *) msgid;
+}
+
+
 static const int32_t table[] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -496,6 +503,11 @@ int fputs_unlocked(const char *str, FILE *stream) {
 
 size_t __fpending (FILE *fp) {
   return fp->_p - fp->_bf._base;
+}
+
+int __freading(FILE *f)
+{
+	return 0;
 }
 
 void* __rawmemchr(const void* s, int c) {
@@ -560,4 +572,50 @@ const unsigned short **__ctype_b_loc(void)
 	return (void *)&ptable2;
 }
 
+char *__strdup(char *str) { return strdup(str); }
+char *__strndup(char *str, int n) { return strndup(str, n); }
+
+void *mempcpy(void *dest, const void *src, size_t n)
+{
+	return (char *)memcpy(dest, src, n) + n;
+}
+
+size_t fwrite_unlocked(char *src, size_t size, size_t nmemb, FILE * f) {
+	return fwrite((char*)src, size, nmemb, f);
+}
+
+int
+__fprintf_chk (FILE *fp, int flag, const char *format, ...)
+{
+  va_list ap;
+  int done;
+
+  va_start (ap, format);
+  done = vfprintf (fp, format, ap);
+  va_end (ap);
+
+  return done;
+}
+
+int __vfprintf_chk(FILE *fp, char *format, va_list ap) { return vfprintf(fp, format, ap); }
+
+size_t __ctype_get_mb_cur_max()
+{
+	return 4;
+}
+
+#include <dirent.h>
+struct dirent *readdir64(DIR *dirp) { return readdir(dirp); }
+
+
+FILE *setmntent(const char *name, const char *mode)
+{
+	return fopen(name, mode);
+}
+
+int endmntent(FILE *f)
+{
+	fclose(f);
+	return 1;
+}
 #endif
