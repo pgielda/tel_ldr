@@ -14,20 +14,31 @@ void error(const char* msg) {
   abort();
 }
 
-__asm("undefined:         \n\
-     jmp _undefined       \n\
-   ");
-
-void undefined();
-
-
-void _undefined() {
+/*
+void undefined() {
   int32_t *d = (int32_t*) (__builtin_return_address(0)-4);
   uint32_t add = (uint32_t) __builtin_return_address(0) + d[0];
   uint32_t *dd = (uint32_t*) (add+2);
-  fprintf(stderr, "undefined function is called (call 0x%08X 0x%08X)\n", add, dd[0]);
+  fprintf(stderr, "undefined function is called (plt call @ 0x%08X)\n", dd[0]);
 }
+*/
 
+typedef struct {
+	char *name;
+	uint32_t pointer;
+} function_t;
+
+function_t functions[8000];
+int function_count = 0;
+
+#include "undef.h"
+
+void* add_function(char *name, uint32_t pointer) {
+	functions[function_count].name = strdup(name);
+	functions[function_count].pointer = pointer;
+	function_count++;
+	return pointers[function_count-1];
+}
 
 int g_argc;
 char** g_argv;
@@ -134,11 +145,14 @@ int main(int argc, char* argv[]) {
   elf = malloc(len);
   lseek(fd, 0, SEEK_SET);
   read(fd, elf, len);
-
-  if (*(int*)elf != 0x464c457f)
+  if (*(int*)elf != 0x464c457f) {
+    close(fd);
     error("not elf");
-  if (*(int*)(elf+16) != 0x30002)
+  }
+  if (*(int*)(elf+16) != 0x30002) {
+    close(fd);
     error("not i386 exec");
+  }
 
   entry = *(int*)(elf+24);
   phoff = *(int*)(elf+28);
@@ -307,8 +321,9 @@ int main(int argc, char* argv[]) {
               if (val) {
                 *addr = *(int*)val;
               } else {
-                fprintf(stderr, "undefined function %s\n", sname);
-		*addr = (int)&undefined;
+                fprintf(stderr, "undefined symbol %s\n", sname);
+		/* abort();
+		*addr = (int)&undefined; */
               }
 	      break;
             }
@@ -322,10 +337,11 @@ int main(int argc, char* argv[]) {
             }
             case 7: {
               if (val) {
-                *addr = (int)val;
+                *addr = (int)add_function(sname, (uint32_t)val);
+		*addr = (int)Aundefined_24;
               } else {
 	        fprintf(stderr, "undefined function %s\n", sname);
-                *addr = (int)&undefined;
+                *addr = (int)add_function(sname, 0);
               }
               break;
             }
@@ -353,5 +369,6 @@ int main(int argc, char* argv[]) {
   ((void*(*)())init)();
   printf("start!: %s %x\n", argv[1], entry);
   ((void*(*)(int, char**))entry)(argc, argv);
+  printf("we're back!\n");
   return 1;
 }
