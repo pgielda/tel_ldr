@@ -1,6 +1,13 @@
-#define asm_f(x) void Aundefined_##x () { __asm__("call _undefined_" #x "\njmp *%eax"); }
+
+#ifdef __MACH__
+#define prefix "_"
+#else
+#define prefix ""
+#endif
+#define asm_f(x) void Aundefined_##x () { __asm__("call " prefix "undefined_" #x "\njmp *%eax"); }
 #define undefi_name(x) undefined_ ##x
-#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function %d (%s), pointing to 0x%08X\n", x, functions[x].name, functions[x].pointer); return (void*)functions[x].pointer; }
+#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function %d (%s), pointing to 0x00000000\n", x, functions[x].name, functions[x].pointer); return (void*)functions[x].pointer; }
+
 asm_f(0)
 asm_f(1)
 asm_f(2)
@@ -24006,3 +24013,4 @@ Aundefined_7998+3,
 Aundefined_7999+3, 
 Aundefined_8000+3, 
 NULL};
+

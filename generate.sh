@@ -1,6 +1,15 @@
-echo '#define asm_f(x) void Aundefined_##x () { __asm__("call _undefined_" #x "\\njmp *%eax"); }'
+echo
+echo '#ifdef __MACH__'
+echo '#define prefix "_"'
+echo '#else'
+echo '#define prefix ""'
+echo '#endif'
+printf '#define asm_f(x) void Aundefined_##x () { __asm__("call " prefix "undefined_" #x "\\njmp *%%eax"); }'
+echo
 echo '#define undefi_name(x) undefined_ ##x'
-echo '#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function %d (%s), pointing to 0x%08X\\n", x, functions[x].name, functions[x].pointer); return (void*)functions[x].pointer; }'
+printf '#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function %%d (%%s), pointing to 0x%08X\\n", x, functions[x].name, functions[x].pointer); return (void*)functions[x].pointer; }'
+echo
+echo
 
 for i in `seq 0 8000`
 do
@@ -18,4 +27,4 @@ do
 echo "Aundefined_${i}+3, "
 done
 echo "NULL};"
-
+echo
