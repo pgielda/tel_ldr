@@ -364,7 +364,7 @@ int main(int argc, char* argv[]) {
                         if (!strcmp(sname, "stdin")) val = &stdin;
                         if (!strcmp(sname, "stdout")) val = &stdout;
                         if (!strcmp(sname, "stderr")) val = &stderr;
-			if (!strcmp(sname, "__environ")) val = (int)_NSGetEnviron();
+			if (!strcmp(sname, "__environ")) val = (void*)_NSGetEnviron();
                 }
 	#endif 
             fprintf(stderr, "%srel: %p %s(%d) (type=%d %s) => %p\n",
@@ -461,5 +461,9 @@ int32_t **__ctype_tolower_loc() {
 int fputs_unlocked(const char *str, FILE *stream) {
 	printf("str = %s   file=%p\n", str, stream);
 	return fputs(str, stream);
+}
+
+size_t __fpending (FILE *fp) {
+  return fp->_p - fp->_bf._base;
 }
 #endif
