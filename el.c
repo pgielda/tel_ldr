@@ -338,7 +338,9 @@ int main(int argc, char* argv[]) {
             case 7: {
               if (val) {
                 *addr = (int)add_function(sname, (uint32_t)val);
-		*addr = (int)Aundefined_24;
+		if (strcmp(sname, "__libc_start_main") == 0) {
+			*addr = (int)Aundefined_24+3; /* omit function header */
+			}
               } else {
 	        fprintf(stderr, "undefined function %s\n", sname);
                 *addr = (int)add_function(sname, 0);

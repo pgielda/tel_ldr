@@ -1,15 +1,10 @@
 
-/* #define asm_f(x) __asm("_Aundefined_" #x ":\ncall _undefined_" #x "\njmp _H__libc_start_main\n"); void Aundefined_ ## x();
-*/
-
-#define asm_f(x) __asm__ ("_Aundefined_" #x ":\ncall _undefined_" #x "\nmovl _H__libc_start_main, %eax\njmp *%eax"); void Aundefined_ ## x();
-
-
+#define asm_f(x) void Aundefined_##x () { __asm__("call undefined_" #x "\njmp *%eax"); }
 
 asm_f(24)
 
 #define undefi_name(x) undefined_ ##x
-#define undefi(x) void undefi_name(x) () { fprintf(stderr, "function %d (%s), pointing to 0x%08X\n", x, functions[x].name, functions[x].pointer); }
+#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function %d (%s), pointing to 0x%08X\n", x, functions[x].name, functions[x].pointer); return (void*)functions[x].pointer; }
 undefi(0)
 undefi(1)
 undefi(2)
