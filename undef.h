@@ -6,7 +6,7 @@
 #endif
 #define asm_f(x) void Aundefined_##x () { __asm__("call " prefix "undefined_" #x "\njmp *%eax"); }
 #define undefi_name(x) undefined_ ##x
-#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function %d (%s), pointing to 0x%08X\n", x, functions[x].name, functions[x].pointer); return (void*)functions[x].pointer; }
+#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function #%04d @ 0x%08X (%s)\r\n", x, functions[x].pointer, functions[x].name); return (void*)functions[x].pointer; }
 
 asm_f(0)
 asm_f(1)

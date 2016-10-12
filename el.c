@@ -122,6 +122,30 @@ struct {
 #define DT_JMPREL       23
 #define DT_ENCODING     32
 
+#define R_386_NONE      0
+#define R_386_32        1
+#define R_386_PC32      2
+#define R_386_GOT32     3
+#define R_386_PLT32     4
+#define R_386_COPY      5
+#define R_386_GLOB_DAT  6
+#define R_386_JMP_SLOT  7
+#define R_386_RELATIVE  8
+#define R_386_GOTOFF    9
+#define R_386_GOTPC     10
+#define R_386_NUM       11
+
+char *nm(int id) {
+	switch (id) {
+		case R_386_NONE: return "386_NONE";
+		case R_386_32: return "386_32";
+		case R_386_COPY: return "386_COPY";
+		case R_386_GLOB_DAT: return "386_GLOB_DAT";
+		case R_386_JMP_SLOT: return "386_JMP_SLOT";
+		default: return "unknown";
+	}
+}
+
 #define PT_NULL    0
 #define PT_LOAD    1
 #define PT_DYNAMIC 2
@@ -283,7 +307,6 @@ int main(int argc, char* argv[]) {
 	} else {
 		printf(" (loaded)\n");
 	}
-	printf(" (omitted)\n");
       }
 
       {
@@ -317,16 +340,20 @@ int main(int argc, char* argv[]) {
                         if (!strcmp(sname, "stderr")) val = &stderr;
                 }
 	#endif 
-            printf("%srel: %p %s(%d) %d => %p\n",
-                   j ? "plt" : "", (void*)addr, sname, sym, type, val);
+            printf("%srel: %p %s(%d) (type=%d %s) => %p\n",
+                   j ? "plt" : "", (void*)addr, sname, sym, type, nm(type), val);
 
             switch (type) {
-            case 1: {
-	      if (val)
-                *addr += (int)val;
+            case R_386_32: {
+	      if (val) {
+                *addr = (int)val;
+	      } else {
+	        fprintf(stderr, "undefined relocation %s\n", sname);
+		abort();
+	      }
 	      break;
             }
-            case 5: {
+            case R_386_COPY: {
               if (val) {
                 *addr = *(int*)val;
               } else {
@@ -335,7 +362,7 @@ int main(int argc, char* argv[]) {
               }
 	      break;
             }
-            case 6: {
+            case R_386_GLOB_DAT: {
               if (val) {
                 *addr = (int)val;
               } else {
@@ -345,7 +372,7 @@ int main(int argc, char* argv[]) {
               }
               break;
             }
-            case 7: {
+            case R_386_JMP_SLOT: {
               if (val) {
                 *addr = (int)add_function(sname, (uint32_t)val);
               } else {
