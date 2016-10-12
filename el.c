@@ -371,3 +371,13 @@ int main(int argc, char* argv[]) {
   printf("we're back!\n");
   return 1;
 }
+
+#ifdef __MACH__
+char *bindtextdomain(const char *domainname, const char *dirname) {
+	return NULL;
+}
+
+char *textdomain(const char *domainname) {
+	return NULL;
+}
+#endif
