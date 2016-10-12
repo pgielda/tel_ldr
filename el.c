@@ -9,25 +9,32 @@
 #include <unistd.h>
 #include <stdint.h>
 
+
+#ifdef __linux__
 #include <execinfo.h>
 #include <sys/procfs.h>
 #include <link.h>
+
+int symbol_get_size(void *ptr) {
+         Dl_info dl_info;
+         ElfW(Sym) *elf_info;
+         dladdr1(ptr, &dl_info, (void **) &elf_info, RTLD_DL_SYMENT);
+         return elf_info->st_size;
+}
+#elif __MACH__
+#include <crt_externs.h>
+int symbol_get_size(void *ptr) {
+	return 4;
+	// TODO
+}
+#endif
 
 void error(const char* msg) {
   perror(msg);
   abort();
 }
 
-const char *__progname_full = "name";
-
-/*
-void undefined() {
-  int32_t *d = (int32_t*) (__builtin_return_address(0)-4);
-  uint32_t add = (uint32_t) __builtin_return_address(0) + d[0];
-  uint32_t *dd = (uint32_t*) (add+2);
-  fprintf(stderr, "undefined function is called (plt call @ 0x%08X)\n", dd[0]);
-}
-*/
+char *__progname, *__progname_full;
 
 typedef struct {
 	char *name;
@@ -35,10 +42,10 @@ typedef struct {
 } function_t;
 
 function_t functions[8000];
-int function_count = 0;
 
 #include "undef.h"
 
+int function_count = 0;
 void* add_function(char *name, uint32_t pointer) {
 	functions[function_count].name = strdup(name);
 	functions[function_count].pointer = pointer;
@@ -137,7 +144,6 @@ struct {
 #define R_386_RELATIVE  8
 #define R_386_GOTOFF    9
 #define R_386_GOTPC     10
-#define R_386_NUM       11
 
 char *nm(int id) {
 	switch (id) {
@@ -160,13 +166,6 @@ char *nm(int id) {
 #define PT_PHDR    6
 #define PT_TLS     7
 
-int symbol_get_size(uint32_t ptr) {
-                Dl_info dl_info;
-                ElfW(Sym) *elf_info;
-                dladdr1(ptr, &dl_info, (void **) &elf_info, RTLD_DL_SYMENT);
-                return elf_info->st_size;
-}
-
 int main(int argc, char* argv[]) {
   int i;
   int fd, len;
@@ -187,10 +186,13 @@ int main(int argc, char* argv[]) {
     close(fd);
     error("not elf");
   }
-  if (*(int*)(elf+16) != 0x30002) {
-   // close(fd);
-   // error("not i386 exec");
+  if ((*(int*)(elf+16) != 0x30002) && (*(int*)(elf+16) != 0x30003)) {
+   close(fd);
+   error("not i386 exec");
   }
+
+  __progname = strdup(argv[0]);
+  __progname_full = strdup(argv[1]);
 
   entry = *(int*)(elf+24);
   phoff = *(int*)(elf+28);
@@ -337,11 +339,13 @@ int main(int argc, char* argv[]) {
           for (i = 0; i < relsz; rel += relent, i += relent) {
             int* addr = *(int**)rel;
             int info = *(int*)(rel + 4);
+	    int g;
             int sym = info >> 8;
             int type = info & 0xff;
 
             int* ds = (int*)(dsym + 16 * sym);
             char* sname = dstr + *ds;
+
             void* val=0;
             int k;
             for(k=0;T[k].n;k++){
@@ -352,7 +356,7 @@ int main(int argc, char* argv[]) {
             }
 
             if(!val){
-                val = dlsym(RTLD_DEFAULT, sname);
+		val = dlsym(RTLD_DEFAULT, sname);
             }
 
 	    #ifdef __MACH__
@@ -360,6 +364,7 @@ int main(int argc, char* argv[]) {
                         if (!strcmp(sname, "stdin")) val = &stdin;
                         if (!strcmp(sname, "stdout")) val = &stdout;
                         if (!strcmp(sname, "stderr")) val = &stderr;
+			if (!strcmp(sname, "__environ")) val = (int)_NSGetEnviron();
                 }
 	#endif 
             fprintf(stderr, "%srel: %p %s(%d) (type=%d %s) => %p\n",
@@ -379,7 +384,7 @@ int main(int argc, char* argv[]) {
             case R_386_COPY: { // 5
               if (val) {
 		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
-                *addr = malloc(symbol_get_size(val));
+                *addr = (int)malloc(symbol_get_size(val));
 		memcpy((void*)addr, (void*)val, symbol_get_size(val));
 
 		      } else *addr = *(int*)val;
