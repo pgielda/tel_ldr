@@ -32,6 +32,17 @@ int symbol_get_size(void *ptr) {
 	return 4;
 	// TODO
 }
+
+char *libnm(char *nm) {
+	char *result = malloc(strlen(nm)+6);
+	strcpy(result, nm);
+	int i;
+	for (i = 0; i < strlen(nm); i++) if (nm[i] == '.') break;
+	strcpy(result + i, ".dylib\0");
+	return result;
+}
+#else
+libnm(x) x
 #endif
 
 void error(const char* msg) {
@@ -325,14 +336,7 @@ int main(int argc, char* argv[]) {
       for (neededp = needed; *neededp; neededp++) {
         printf("needed: %s", dstr + *neededp);
 	/* TODO: temporarily we are not loading the libs */
-        if (dlopen(dstr + *neededp, RTLD_NOW | RTLD_GLOBAL) == NULL) {
-		if (!strncmp(dstr + *neededp, "libreadline.", 12)) {
-			printf("loading libreadline!\n");
-			if (dlopen("libreadline.dylib", RTLD_NOW | RTLD_GLOBAL) == NULL) printf("failed :( :(\n");
-		}
-		if (!strncmp(dstr + *neededp, "libncurses.", 11)) {
-				if (dlopen("libncurses.dylib", RTLD_NOW | RTLD_GLOBAL) == NULL) printf("failed :( :(\n");
-			}
+        if (dlopen(libnm(dstr + *neededp), RTLD_NOW | RTLD_GLOBAL) == NULL) {
 		printf(" (not found)\n");
 	} else {
 		printf(" (loaded)\n");
@@ -466,6 +470,10 @@ char *dcgettext(const char *domainname, const char *msgid, int category)
 	return (char *) msgid;
 }
 
+char *gettext(const char *msgid)
+{
+	return (char *) msgid;
+}
 
 static const int32_t table[] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
