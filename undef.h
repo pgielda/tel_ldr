@@ -4,7 +4,7 @@
 #else
 #define prefix ""
 #endif
-#define asm_f(x) void Aundefined_##x () { __asm__("call " prefix "undefined_" #x "\njmp *%eax"); }
+#define asm_f(x) void Aundefined_##x () { __asm__("call " prefix "undefined_" #x "\ntestl %eax, %eax\nje endof_" #x "\njmp *%eax\nendof_" #x ":\n"); }
 #define undefi_name(x) undefined_ ##x
 #define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function #%04d @ 0x%08X (%s)\r\n", x, functions[x].pointer, functions[x].name); return (void*)functions[x].pointer; }
 

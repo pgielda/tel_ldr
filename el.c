@@ -1,3 +1,7 @@
+// 
+// for license see LICENSE file
+//
+
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>
@@ -69,12 +73,6 @@ int H__libc_start_main(int (*m)(int, char**, char**),
   /*printf("%d %s\n", argc, argv[0]);*/
   exit(m(argc, argv, 0));
 }
-
-#ifdef __MACH__
-void* __rawmemchr(const void* s, int c) {
-  return memchr(s, c, -1);
-}
-#endif
 
 int Hlseek(int fd, int off, int wh) {
   return lseek(fd, off, wh);
@@ -399,8 +397,7 @@ int main(int argc, char* argv[]) {
                 *addr = (int)val;
               } else {
                 fprintf(stderr, "undefined data %s\n", sname);
-		if (strcmp(sname, "__gmon_start__")) *addr = 0;
-			//abort();
+		*addr = 0;
               }
               break;
             }
@@ -465,5 +462,9 @@ int fputs_unlocked(const char *str, FILE *stream) {
 
 size_t __fpending (FILE *fp) {
   return fp->_p - fp->_bf._base;
+}
+
+void* __rawmemchr(const void* s, int c) {
+	  return memchr(s, c, -1);
 }
 #endif
