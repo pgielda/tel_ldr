@@ -14,6 +14,8 @@ void error(const char* msg) {
   abort();
 }
 
+const char *__progname_full = "name";
+
 /*
 void undefined() {
   int32_t *d = (int32_t*) (__builtin_return_address(0)-4);
@@ -308,6 +310,13 @@ int main(int argc, char* argv[]) {
                 val = dlsym(RTLD_DEFAULT, sname);
             }
 
+	    #ifdef __MACH__
+              if(!val) {
+                        if (!strcmp(sname, "stdin")) val = &stdin;
+                        if (!strcmp(sname, "stdout")) val = &stdout;
+                        if (!strcmp(sname, "stderr")) val = &stderr;
+                }
+	#endif 
             printf("%srel: %p %s(%d) %d => %p\n",
                    j ? "plt" : "", (void*)addr, sname, sym, type, val);
 
@@ -322,8 +331,7 @@ int main(int argc, char* argv[]) {
                 *addr = *(int*)val;
               } else {
                 fprintf(stderr, "undefined symbol %s\n", sname);
-		/* abort();
-		*addr = (int)&undefined; */
+		abort();
               }
 	      break;
             }
@@ -332,6 +340,8 @@ int main(int argc, char* argv[]) {
                 *addr = (int)val;
               } else {
                 fprintf(stderr, "undefined data %s\n", sname);
+		if (strcmp(sname, "__gmon_start__"))
+			abort();
               }
               break;
             }
@@ -379,5 +389,14 @@ char *bindtextdomain(const char *domainname, const char *dirname) {
 
 char *textdomain(const char *domainname) {
 	return NULL;
+}
+
+int32_t **__ctype_tolower_loc() {
+   return NULL;
+}
+
+int fputs_unlocked(const char *str, FILE *stream) {
+	printf("str = %s   file=%p\n", str, stream);
+	return fputs(str, stream);
 }
 #endif
