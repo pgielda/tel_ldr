@@ -9,6 +9,10 @@
 #include <unistd.h>
 #include <stdint.h>
 
+#include <execinfo.h>
+#include <sys/procfs.h>
+#include <link.h>
+
 void error(const char* msg) {
   perror(msg);
   abort();
@@ -142,6 +146,7 @@ char *nm(int id) {
 		case R_386_COPY: return "386_COPY";
 		case R_386_GLOB_DAT: return "386_GLOB_DAT";
 		case R_386_JMP_SLOT: return "386_JMP_SLOT";
+		case R_386_RELATIVE: return "386_RELATIVE";
 		default: return "unknown";
 	}
 }
@@ -154,6 +159,13 @@ char *nm(int id) {
 #define PT_SHLIB   5
 #define PT_PHDR    6
 #define PT_TLS     7
+
+int symbol_get_size(uint32_t ptr) {
+                Dl_info dl_info;
+                ElfW(Sym) *elf_info;
+                dladdr1(ptr, &dl_info, (void **) &elf_info, RTLD_DL_SYMENT);
+                return elf_info->st_size;
+}
 
 int main(int argc, char* argv[]) {
   int i;
@@ -176,8 +188,8 @@ int main(int argc, char* argv[]) {
     error("not elf");
   }
   if (*(int*)(elf+16) != 0x30002) {
-    close(fd);
-    error("not i386 exec");
+   // close(fd);
+   // error("not i386 exec");
   }
 
   entry = *(int*)(elf+24);
@@ -231,6 +243,16 @@ int main(int argc, char* argv[]) {
       }
       break;
     }
+    case PT_INTERP: {
+		  printf("omitting PT_INTERP\n");
+		  break;
+		    }
+
+    case PT_PHDR: {
+		  printf("omitting PT_PHDR\n");
+		  break;
+		  }
+
     case PT_DYNAMIC: {
       char* dyn;
       char* dstr = NULL;
@@ -340,7 +362,7 @@ int main(int argc, char* argv[]) {
                         if (!strcmp(sname, "stderr")) val = &stderr;
                 }
 	#endif 
-            printf("%srel: %p %s(%d) (type=%d %s) => %p\n",
+            fprintf(stderr, "%srel: %p %s(%d) (type=%d %s) => %p\n",
                    j ? "plt" : "", (void*)addr, sname, sym, type, nm(type), val);
 
             switch (type) {
@@ -349,13 +371,18 @@ int main(int argc, char* argv[]) {
                 *addr = (int)val;
 	      } else {
 	        fprintf(stderr, "undefined relocation %s\n", sname);
+		*addr = 0;
 		abort();
 	      }
 	      break;
             }
-            case R_386_COPY: {
+            case R_386_COPY: { // 5
               if (val) {
-                *addr = *(int*)val;
+		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
+                *addr = malloc(symbol_get_size(val));
+		memcpy((void*)addr, (void*)val, symbol_get_size(val));
+
+		      } else *addr = *(int*)val;
               } else {
                 fprintf(stderr, "undefined symbol %s\n", sname);
 		abort();
@@ -367,8 +394,8 @@ int main(int argc, char* argv[]) {
                 *addr = (int)val;
               } else {
                 fprintf(stderr, "undefined data %s\n", sname);
-		if (strcmp(sname, "__gmon_start__"))
-			abort();
+		if (strcmp(sname, "__gmon_start__")) *addr = 0;
+			//abort();
               }
               break;
             }
@@ -393,6 +420,9 @@ int main(int argc, char* argv[]) {
 
       break;
     }
+    case PT_NOTE:
+		 printf("omitting PT_NOTE\n");
+		 break;
     default:
       printf("unknown PT 0x%X\n", ph[0]);
     }
@@ -402,8 +432,9 @@ int main(int argc, char* argv[]) {
   g_argc = argc-1;
   g_argv = argv+1;
   printf("init...\n");
-  ((void*(*)())init)();
+  //((void*(*)())init)();
   printf("start!: %s %x\n", argv[1], entry);
+  printf("our pid is %d\n", getpid());
   ((void*(*)(int, char**))entry)(argc, argv);
   printf("we're back!\n");
   return 1;

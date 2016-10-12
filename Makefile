@@ -1,6 +1,6 @@
 UNAME=$(shell uname)
 
-CFLAGS=-m32 -g
+CFLAGS=-m32
 #-ansi
 LDFLAGS+=-rdynamic
 ifeq ($(UNAME),Linux)
@@ -11,7 +11,7 @@ endif
 all: el
 
 %.o: %.c Makefile
-	$(CC) $(CFLAGS) -ansi -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 el: el.o
 	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
