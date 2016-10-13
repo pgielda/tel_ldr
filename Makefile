@@ -1,7 +1,6 @@
 UNAME=$(shell uname)
 
 CFLAGS=-m32
-#-ansi
 LDFLAGS+=-rdynamic
 ifeq ($(UNAME),Linux)
 	LDFLAGS+=-ldl
@@ -13,7 +12,7 @@ all: el
 %.o: %.c Makefile
 	$(CC) $(CFLAGS) -c $< -o $@
 
-el: el.o
+el: el.o mac_libc.o
 	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
 
 clean:

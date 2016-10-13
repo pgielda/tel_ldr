@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <stdarg.h>
 
 #ifdef __linux__
 #include <execinfo.h>
@@ -25,8 +26,10 @@ int symbol_get_size(void *ptr) {
          dladdr1(ptr, &dl_info, (void **) &elf_info, RTLD_DL_SYMENT);
          return elf_info->st_size;
 }
+
+#define libnm(x) (const char*)(x)
+
 #elif __MACH__
-#include <stdarg.h>
 #include <crt_externs.h>
 int symbol_get_size(void *ptr) {
 	return 4;
@@ -41,8 +44,6 @@ char *libnm(char *nm) {
 	strcpy(result + i, ".dylib\0");
 	return result;
 }
-#else
-libnm(x) x
 #endif
 
 void error(const char* msg) {
@@ -72,18 +73,14 @@ void* add_function(char *name, uint32_t pointer) {
 int g_argc;
 char** g_argv;
 int H__libc_start_main(int (*m)(int, char**, char**),
-                       int argc, char** argv /*,
-                       void (*init)(void), void (*fini)(void),
-                       void (*rtld_fini)(void),
-                       void (*stack_end)
-                       */
-                       ) {
+                       int argc, char** argv) {
   if (g_argc) {
     argc = g_argc;
     argv = g_argv;
   }
-  /*printf("%d %s\n", argc, argv[0]);*/
-  exit(m(argc, argv, 0));
+  int result = m(argc, argv, 0);
+  printf("finished with %d\n", result);
+  exit(result);
 }
 
 int Hlseek(int fd, int off, int wh) {
@@ -176,6 +173,8 @@ char *nm(int id) {
 #define PT_PHDR    6
 #define PT_TLS     7
 
+#define ELF_MAGIC 0x464C457F
+
 int main(int argc, char* argv[]) {
   int i;
   int fd, len;
@@ -192,7 +191,7 @@ int main(int argc, char* argv[]) {
   elf = malloc(len);
   lseek(fd, 0, SEEK_SET);
   read(fd, elf, len);
-  if (*(int*)elf != 0x464c457f) {
+  if (*(int*)elf != ELF_MAGIC) {
     close(fd);
     error("not elf");
   }
@@ -275,6 +274,7 @@ int main(int argc, char* argv[]) {
       int needed[999] = {}, *neededp = needed;
       puts("PT_DYNAMIC");
       dyn = elf + poff;
+      
       for (;;) {
         unsigned short dtag = *(unsigned short*)dyn;
         int dval = *(int*)(dyn + 4);
@@ -286,7 +286,7 @@ int main(int argc, char* argv[]) {
 	   init = dval;
 	   break;
 	}
-        case DT_NEEDED: {  /* DT_NEEDED */
+        case DT_NEEDED: {
           *neededp++ = dval;
 	  break;
         }
@@ -329,6 +329,7 @@ int main(int argc, char* argv[]) {
           printf("unknown DYN dtag=%d dval=%X\n", dtag, dval);
         }
       }
+
       if (!dsym || !dstr) {
         error("no dsym or dstr");
       }
@@ -446,184 +447,10 @@ int main(int argc, char* argv[]) {
   g_argc = argc-1;
   g_argv = argv+1;
   printf("init...\n");
-  //((void*(*)())init)();
+  ((void*(*)())init)();
   printf("start!: %s %x\n", argv[1], entry);
   printf("our pid is %d\n", getpid());
   ((void*(*)(int, char**))entry)(argc, argv);
-  printf("we're back!\n");
+  // we should never return here
   return 1;
 }
-
-#ifdef __MACH__
-// stuff taken from https://github.com/evanphx/ulysses-libc
-
-char *bindtextdomain(const char *domainname, const char *dirname) {
-	return NULL;
-}
-
-char *textdomain(const char *domainname) {
-	return NULL;
-}
-
-char *dcgettext(const char *domainname, const char *msgid, int category)
-{
-	return (char *) msgid;
-}
-
-char *gettext(const char *msgid)
-{
-	return (char *) msgid;
-}
-
-static const int32_t table[] = {
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,
-16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,
-32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,
-48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,
-64,
-'a','b','c','d','e','f','g','h','i','j','k','l','m',
-'n','o','p','q','r','s','t','u','v','w','x','y','z',
-91,92,93,94,95,96,
-'a','b','c','d','e','f','g','h','i','j','k','l','m',
-'n','o','p','q','r','s','t','u','v','w','x','y','z',
-123,124,125,126,127,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-};
-
-static const int32_t *const ptable = table+128;
-
-const int32_t **__ctype_tolower_loc(void)
-{
-	return (void *)&ptable;
-}
-
-int fputs_unlocked(const char *str, FILE *stream) {
-	printf("str = %s   file=%p\n", str, stream);
-	return fputs(str, stream);
-}
-
-size_t __fpending (FILE *fp) {
-  return fp->_p - fp->_bf._base;
-}
-
-int __freading(FILE *f)
-{
-	return 0;
-}
-
-void* __rawmemchr(const void* s, int c) {
-	  return memchr(s, c, -1);
-}
-
-int rl_filename_quoting_desired = 1;
-
-void *rl_last_func = NULL;
-
-int rl_sort_completion_matches = 1;
-int history_max_entries=10;
-
-void *rl_directory_completion_hook = NULL;
-void *rl_filename_rewrite_hook = NULL;
-
-int __xstat64(int version, const char *file, void *buf) {
-   return stat(file, buf);
-}
-
-FILE *fopen64(const char *path, const char *mode) {
-	return fopen(path, mode);
-}
-
-ssize_t __getdelim(char ** linep, size_t *linecap, int delimeter, FILE *stream) {
-	return getdelim(linep, linecap, delimeter, stream);
-}
-
-#define X(x) x
-
-static const unsigned short table2[] = {
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),
-X(0x200),X(0x320),X(0x220),X(0x220),X(0x220),X(0x220),X(0x200),X(0x200),
-X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),
-X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),X(0x200),
-X(0x160),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),
-X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),
-X(0x8d8),X(0x8d8),X(0x8d8),X(0x8d8),X(0x8d8),X(0x8d8),X(0x8d8),X(0x8d8),
-X(0x8d8),X(0x8d8),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),
-X(0x4c0),X(0x8d5),X(0x8d5),X(0x8d5),X(0x8d5),X(0x8d5),X(0x8d5),X(0x8c5),
-X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),
-X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),X(0x8c5),
-X(0x8c5),X(0x8c5),X(0x8c5),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),
-X(0x4c0),X(0x8d6),X(0x8d6),X(0x8d6),X(0x8d6),X(0x8d6),X(0x8d6),X(0x8c6),
-X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),
-X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),X(0x8c6),
-X(0x8c6),X(0x8c6),X(0x8c6),X(0x4c0),X(0x4c0),X(0x4c0),X(0x4c0),X(0x200),
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-};
-
-static const unsigned short *const ptable2 = table2+128;
-
-const unsigned short **__ctype_b_loc(void)
-{
-	return (void *)&ptable2;
-}
-
-char *__strdup(char *str) { return strdup(str); }
-char *__strndup(char *str, int n) { return strndup(str, n); }
-
-void *mempcpy(void *dest, const void *src, size_t n)
-{
-	return (char *)memcpy(dest, src, n) + n;
-}
-
-size_t fwrite_unlocked(char *src, size_t size, size_t nmemb, FILE * f) {
-	return fwrite((char*)src, size, nmemb, f);
-}
-
-int
-__fprintf_chk (FILE *fp, int flag, const char *format, ...)
-{
-  va_list ap;
-  int done;
-
-  va_start (ap, format);
-  done = vfprintf (fp, format, ap);
-  va_end (ap);
-
-  return done;
-}
-
-int __vfprintf_chk(FILE *fp, char *format, va_list ap) { return vfprintf(fp, format, ap); }
-
-size_t __ctype_get_mb_cur_max()
-{
-	return 4;
-}
-
-#include <dirent.h>
-struct dirent *readdir64(DIR *dirp) { return readdir(dirp); }
-
-
-FILE *setmntent(const char *name, const char *mode)
-{
-	return fopen(name, mode);
-}
-
-int endmntent(FILE *f)
-{
-	fclose(f);
-	return 1;
-}
-#endif
