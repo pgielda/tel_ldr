@@ -13,7 +13,7 @@ all: el
 	$(CC) $(CFLAGS) -c $< -o $@
 
 el: el.o mac_libc.o
-	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 clean:
 	rm -f el *.o
