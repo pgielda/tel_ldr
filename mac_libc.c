@@ -22,13 +22,48 @@
 // 
 // linux stuff for mac
 // stuff taken from https://github.com/evanphx/ulysses-libc
-
-char *bindtextdomain(const char *domainname, const char *dirname) {
-	return NULL;
+int klogctl (int type, char *buf, int len) {
+	printf("klogctl not implemented!\n");
+	return 0;
 }
 
-char *textdomain(const char *domainname) {
-	return NULL;
+int _IO_getc(FILE* __fp) {
+	return getc(__fp);
+}
+
+int open64(const char *pathname, int flags) {
+	return open(pathname, flags);
+}
+
+int openat64(int dirfd, const char *pathname, int flags) {
+	return openat(dirfd, pathname, flags);
+}
+
+int __fxstat64(int vers, int fd, struct stat *buf) {
+	if (vers != 3) printf("error!\n");
+	return fstat(fd, buf);
+}
+
+char *bindtextdomain(const char *domainname, const char *dirname)
+{
+	static const char dir[] = "/";
+	if (!domainname || !*domainname
+		|| (dirname && ((dirname[0] != '/') || dirname[1]))
+		) {
+		errno = EINVAL;
+		return NULL;
+	}
+	return (char *) dir;
+}
+
+char *textdomain(const char *domainname)
+{
+	static const char default_str[] = "messages";
+	if (domainname && *domainname && strcmp(domainname, default_str)) {
+		errno = EINVAL;
+		return NULL;
+	}
+	return (char *) default_str;
 }
 
 char *dcgettext(const char *domainname, const char *msgid, int category)
@@ -98,8 +133,9 @@ int history_max_entries=10;
 void *rl_directory_completion_hook = NULL;
 void *rl_filename_rewrite_hook = NULL;
 
-int __xstat64(int version, const char *file, void *buf) {
-   return stat(file, buf);
+int __xstat64(int version, const char *path, struct stat *stat_buf) {
+   	if (version != 3) printf("error!\n");
+	return stat(path, stat_buf);
 }
 
 FILE *fopen64(const char *path, const char *mode) {
@@ -155,6 +191,7 @@ void *mempcpy(void *dest, const void *src, size_t n)
 }
 
 size_t fwrite_unlocked(char *src, size_t size, size_t nmemb, FILE * f) {
+	printf("fwrite_unlocked: '%s' (%p), size=%zu nmemb=%zu, f=%p\n", src, src, size, nmemb, f);
 	return fwrite((char*)src, size, nmemb, f);
 }
 
@@ -167,11 +204,12 @@ __fprintf_chk (FILE *fp, int flag, const char *format, ...)
   va_start (ap, format);
   done = vfprintf (fp, format, ap);
   va_end (ap);
-
   return done;
 }
 
-int __vfprintf_chk(FILE *fp, char *format, va_list ap) { return vfprintf(fp, format, ap); }
+int __vfprintf_chk(FILE *fp, int flag, char *format, va_list ap) { 
+  return vfprintf(fp, format, ap); 
+}
 
 size_t __ctype_get_mb_cur_max()
 {
@@ -179,7 +217,6 @@ size_t __ctype_get_mb_cur_max()
 }
 
 struct dirent *readdir64(DIR *dirp) { return readdir(dirp); }
-//__asm__("readdir64:\njmp readdir\n"); // TODO: test this
 
 FILE *setmntent(const char *name, const char *mode)
 {

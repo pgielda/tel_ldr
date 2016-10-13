@@ -36,6 +36,25 @@ int symbol_get_size(void *ptr) {
 	// TODO
 }
 
+int __open64 (const char *file, int oflag, ...) {
+        int mode = 0;
+
+  if (oflag & O_CREAT)
+    {
+      va_list arg;
+      va_start (arg, oflag);
+      mode = va_arg (arg, int);
+      va_end (arg);
+    }
+
+	return open(file, oflag, mode);
+}
+
+int __open64_2 (const char *file, int oflag)
+{
+  return __open64 (file, oflag);
+}
+
 char *libnm(char *nm) {
 	char *result = malloc(strlen(nm)+6);
 	strcpy(result, nm);
