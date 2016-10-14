@@ -382,8 +382,11 @@ int library_count = 0;
 void add_library(char *nm) {
 	int i;
 	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return;
-	if (!strncmp(basename(nm), "libsystem",9)) return; // TODO: we have to extract the filename
-	if (!strncmp(basename(nm), "libc.", 5)) return; // TODO: as above
+	if (!strncmp(basename(nm), "libsystem",9)) return;
+	if (!strncmp(basename(nm), "libc.", 5)) return; 
+        Dl_info info;
+        dladdr(add_library, &info);
+	if (!strcmp(basename(nm), basename((char*)info.dli_fname))) return;
 	// TODO: also omit itself!
 	library_list[library_count] = strdup(nm);
 	library_count++;
@@ -646,7 +649,7 @@ int main(int argc, char* argv[]) {
 				}
 
 			}
-		} /*else *addr = *(int*)val;*/
+		}
               } else {
                 fprintf(stderr, "undefined symbol %s\n", sname);
 		abort();
