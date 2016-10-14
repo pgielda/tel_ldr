@@ -18,24 +18,13 @@
 #include <libgen.h>
 
 #ifdef __linux__
+
 #include <elf.h>
-
-int symbol_get_size(void *ptr) {
-         Dl_info dl_info;
-         Elf32_Sym *elf_info;
-         dladdr1(ptr, &dl_info, (void **) &elf_info, RTLD_DL_SYMENT);
-         return elf_info->st_size;
-}
-
 #define libnm(x) (const char*)(x)
 
 #elif __MACH__
-#include <crt_externs.h>
-int symbol_get_size(void *ptr) {
-	return 4;
-	// TODO
-}
 
+#include <crt_externs.h>
 void replace_symbol(char *nm, uint32_t addr, uint32_t val) {
 }
 
@@ -567,11 +556,10 @@ int main(int argc, char* argv[]) {
         for (j = 0; j < 2; j++) for (i = 0; i < relsz; rel += relent, i += relent) {
             int* addr = *(int**)rel;
             int info = *(int*)(rel + 4);
-            int g;
             int sym = info >> 8;
             int type = info & 0xff;
-
             int* ds = (int*)(dsym + 16 * sym);
+	    uint32_t *sz = (uint32_t*)(dsym + 16 * sym + 8);
             char* sname = dstr + *ds;
 
             void* val=0;
@@ -579,7 +567,7 @@ int main(int argc, char* argv[]) {
 	    if (val) {
 		Dl_info info;
                 dladdr(val, &info);
-		printf("Successfully resolved %s as %p @ %s\n", sname, val, info.dli_fname);
+		printf("Successfully resolved %s as %p @ %s of size %d\n", sname, val, info.dli_fname, *sz);
 	        add_library((char*)info.dli_fname);
 	    }
 	}
@@ -588,13 +576,12 @@ int main(int argc, char* argv[]) {
           for (i = 0; i < relsz; rel += relent, i += relent) {
             int* addr = *(int**)rel;
             int info = *(int*)(rel + 4);
-	    int g;
             int sym = info >> 8;
             int type = info & 0xff;
 
             int* ds = (int*)(dsym + 16 * sym);
             char* sname = dstr + *ds;
-
+	    uint32_t *sz = (uint32_t*)(dsym + 16 * sym + 8);
             void* val=0;
             int k;
             for(k=0;T[k].n;k++){
@@ -634,14 +621,14 @@ int main(int argc, char* argv[]) {
 	    /*R_386_COPY	read a string of bytes from the "symbol" address and deposit a copy into this location; the "symbol" object has an intrinsic length 
 	      i.e. move initialized data from a library down into the app data space */
               if (val) {
-		      memcpy((void*)addr, (void*)val, symbol_get_size(val));
+		      memcpy((void*)addr, (void*)val, *sz);
 		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
 			      // very primitive got replacement
 			      Dl_info info;
 		              dladdr(val, &info);
 
          		if (info.dli_saddr == val) {
-	         		printf("found symbol %s of size %d @ %p in loaded lib %s (%p)\n", info.dli_sname, symbol_get_size(val), val, info.dli_fname, info.dli_fbase);
+	         		printf("found symbol %s of size %d @ %p in loaded lib %s (%p)\n", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
 				int iter;
 				for (iter = 0; iter < library_count; iter++) { 
 					printf("trying to replace symbol in %s\n", library_list[iter]);
