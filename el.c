@@ -19,6 +19,8 @@
 #include <execinfo.h>
 #include <sys/procfs.h>
 #include <link.h>
+#include <elf.h>
+#include <sys/types.h>
 
 int symbol_get_size(void *ptr) {
          Dl_info dl_info;
@@ -194,6 +196,196 @@ char *nm(int id) {
 
 #define ELF_MAGIC 0x464C457F
 
+// taken form ELF-Hook 
+
+#define Elf_Sym Elf32_Sym
+#define Elf_Shdr Elf32_Shdr
+#define Elf_Ehdr Elf32_Ehdr
+#define Elf_Rel Elf32_Rel
+
+#define  LIBRARY_ADDRESS_BY_HANDLE(dlhandle) ((NULL == dlhandle) ? NULL :  (void*)*(size_t const*)(dlhandle)) 
+
+
+
+static int read_header(int d, Elf_Ehdr **header)
+{
+    *header = (Elf_Ehdr *)malloc(sizeof(Elf_Ehdr));
+    if(NULL == *header)
+    {
+        return errno;
+    }
+
+    if (lseek(d, 0, SEEK_SET) < 0)
+    {
+        free(*header);
+
+        return errno;
+    }
+
+    if (read(d, *header, sizeof(Elf_Ehdr)) <= 0)
+    {
+        free(*header);
+
+        return errno = EINVAL;
+    }
+
+    return 0;
+}
+
+static int read_section_table(int d, Elf_Ehdr const *header, Elf_Shdr **table)
+{
+    size_t size;
+
+    if (NULL == header)
+        return EINVAL;
+
+    size = header->e_shnum * sizeof(Elf_Shdr);
+    *table = (Elf_Shdr *)malloc(size);
+    if(NULL == *table)
+    {
+        return errno;
+    }
+
+    if (lseek(d, header->e_shoff, SEEK_SET) < 0)
+    {
+        free(*table);
+
+        return errno;
+    }
+
+    if (read(d, *table, size) <= 0)
+    {
+        free(*table);
+
+        return errno = EINVAL;
+    }
+
+    return 0;
+}
+
+static int read_string_table(int d, Elf_Shdr const *section, char const **strings)
+{
+    if (NULL == section)
+        return EINVAL;
+
+    *strings = (char const *)malloc(section->sh_size);
+    if(NULL == *strings)
+    {
+        return errno;
+    }
+
+    if (lseek(d, section->sh_offset, SEEK_SET) < 0)
+    {
+        free((void *)*strings);
+
+        return errno;
+    }
+
+    if (read(d, (char *)*strings, section->sh_size) <= 0)
+    {
+        free((void *)*strings);
+
+        return errno = EINVAL;
+    }
+
+    return 0;
+}
+
+static int section_by_name(int d, char const *section_name, Elf_Shdr **section)
+{
+    Elf_Ehdr *header = NULL;
+    Elf_Shdr *sections = NULL;
+    char const *strings = NULL;
+    size_t i;
+
+    *section = NULL;
+
+    if (
+        read_header(d, &header) ||
+        read_section_table(d, header, &sections) ||
+        read_string_table(d, &sections[header->e_shstrndx], &strings)
+        )
+        return errno;
+
+    for (i = 0; i < header->e_shnum; ++i)
+        if (!strcmp(section_name, &strings[sections[i].sh_name]))
+        {
+            *section = (Elf_Shdr *)malloc(sizeof(Elf_Shdr));
+
+            if (NULL == *section)
+            {
+                free(header);
+                free(sections);
+                free((void *)strings);
+
+                return errno;
+            }
+
+            memcpy(*section, sections + i, sizeof(Elf_Shdr));
+
+            break;
+        }
+
+    free(header);
+    free(sections);
+    free((void *)strings);
+
+    return 0;
+}
+
+// from net
+
+#define HEXDUMP_COLS 8
+
+void hexdump(void *mem, unsigned int len)
+{
+        unsigned int i, j;
+        
+        for(i = 0; i < len + ((len % HEXDUMP_COLS) ? (HEXDUMP_COLS - len % HEXDUMP_COLS) : 0); i++)
+        {
+                /* print offset */
+                if(i % HEXDUMP_COLS == 0)
+                {
+                        printf("0x%06x: ", i);
+                }
+ 
+                /* print hex data */
+                if(i < len)
+                {
+                        printf("%02x ", 0xFF & ((char*)mem)[i]);
+                }
+                else /* end of block, just aligning for ASCII dump */
+                {
+                        printf("   ");
+                }
+                
+                /* print ASCII dump */
+                if(i % HEXDUMP_COLS == (HEXDUMP_COLS - 1))
+                {
+                        for(j = i - (HEXDUMP_COLS - 1); j <= i; j++)
+                        {
+                                if(j >= len) /* end of block, not really printing */
+                                {
+                                        putchar(' ');
+                                }
+                                else if(isprint(((char*)mem)[j])) /* printable char */
+                                {
+                                        putchar(0xFF & ((char*)mem)[j]);        
+                                }
+                                else /* other char */
+                                {
+                                        putchar('.');
+                                }
+                        }
+                        putchar('\n');
+                }
+        }
+}
+
+
+
+/// end of taken
+
 int main(int argc, char* argv[]) {
   int i;
   int fd, len;
@@ -356,10 +548,28 @@ int main(int argc, char* argv[]) {
       for (neededp = needed; *neededp; neededp++) {
         printf("needed: %s", dstr + *neededp);
 	/* TODO: temporarily we are not loading the libs */
-        if (dlopen(libnm(dstr + *neededp), RTLD_NOW | RTLD_GLOBAL) == NULL) {
+	void *libpointer = dlopen(libnm(dstr + *neededp), RTLD_NOW | RTLD_GLOBAL);
+        if (!libpointer) {
 		printf(" (not found)\n");
 	} else {
 		printf(" (loaded)\n");
+		#if 0
+		if (!strncmp(dstr + *neededp, "libncurses", 10)) {
+			printf("aha, ncurses!\n");
+			void *lib = LIBRARY_ADDRESS_BY_HANDLE(libpointer);
+			printf("pointer to lib is %p\n", lib);
+			int descriptor = open("/usr/lib32/libncurses.so", O_RDONLY);
+			  Elf_Shdr *rel_dyn ;
+			section_by_name(descriptor, ".rel.dyn", &rel_dyn);
+			    Elf_Rel *rel_dyn_table = (Elf_Rel *)(((size_t)lib) + rel_dyn->sh_addr);
+			    printf("rel_dyn_table = %p\n", rel_dyn_table);
+			    
+			// TODO: we have to find and substitute some global symbols here !
+		//	hexdump(lib, 400000);
+			void *ptr = (void*)(LIBRARY_ADDRESS_BY_HANDLE(libpointer) + 0x5afc8); // this is LINES!
+			hexdump(ptr, 4);
+		}
+		#endif
 	}
       }
 
@@ -412,10 +622,28 @@ int main(int argc, char* argv[]) {
 	      break;
             }
             case R_386_COPY: { // 5
+	    /*R_386_COPY	read a string of bytes from the "symbol" address and deposit a copy into this location; the "symbol" object has an intrinsic length 
+	      i.e. move initialized data from a library down into the app data space */
               if (val) {
+	      		// TODO: this has to be implemented in a way that we patch the libraries already loaded to point to those "new" symbols. Otherwise we have a situation where the binary is pointing to *addr, and the libs are pointing to val.
 		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
-                *addr = (int)malloc(symbol_get_size(val));
-		memcpy((void*)addr, (void*)val, symbol_get_size(val));
+		      //fprintf(stderr, "data: addr=%p, *addr=%p, val=%p *val=%p\n", addr, *addr, val, *(uint32_t*)val);
+//                *addr = (int) val; /*(int)malloc(symbol_get_size(val));*/
+	/*memcpy((void*)addr, (void*)val, symbol_get_size(val));*/
+	
+	Dl_info info;
+	dladdr(val, &info);
+	if (info.dli_saddr == val) {
+		printf("found symbol %s @ %p in loaded lib %s (%p)\n", info.dli_sname, val, info.dli_fname, info.dli_fbase);
+		if (!strcmp(sname, "LINES")) {
+			#define LINES_ADDR 0x5afc8  // TODO: how to get this? this is in .got 
+			mprotect((void*)((uint32_t)(info.dli_fbase + LINES_ADDR) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE); // TODO: is exec needed?
+			uint32_t *ddr = (uint32_t*)(info.dli_fbase + LINES_ADDR);
+			ddr[0] = (uint32_t)addr;
+			mprotect((void*)((uint32_t)(info.dli_fbase + LINES_ADDR) & 0xFFFFF000), 0x1000, PROT_READ);
+		}
+	}
+
 
 		      } else *addr = *(int*)val;
               } else {
