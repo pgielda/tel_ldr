@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <stdarg.h>
+#include <ctype.h>
 
 #ifdef __linux__
 #include <elf.h>
@@ -32,6 +33,9 @@ int symbol_get_size(void *ptr) {
 int symbol_get_size(void *ptr) {
 	return 4;
 	// TODO
+}
+
+void replace_symbol(char *nm, uint32_t addr, uint32_t val) {
 }
 
 char *libnm(char *nm) {
@@ -553,6 +557,27 @@ int main(int argc, char* argv[]) {
 
       {
         int i, j;
+	char* oldrel = rel;
+        for (j = 0; j < 2; j++) for (i = 0; i < relsz; rel += relent, i += relent) {
+            int* addr = *(int**)rel;
+            int info = *(int*)(rel + 4);
+            int g;
+            int sym = info >> 8;
+            int type = info & 0xff;
+
+            int* ds = (int*)(dsym + 16 * sym);
+            char* sname = dstr + *ds;
+
+            void* val=0;
+	    val = dlsym(RTLD_DEFAULT, sname);
+	    if (val) {
+		Dl_info info;
+                dladdr(val, &info);
+		printf("Successfully resolved %s as %p @ %s\n", sname, val, info.dli_fname);
+	        // TODO: add info.dli_fname to a list that is used later on.
+	    }
+	}
+	rel = oldrel;
         for (j = 0; j < 2; j++) {
           for (i = 0; i < relsz; rel += relent, i += relent) {
             int* addr = *(int**)rel;
