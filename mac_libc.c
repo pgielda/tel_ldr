@@ -44,6 +44,25 @@ int __fxstat64(int vers, int fd, struct stat *buf) {
 	return fstat(fd, buf);
 }
 
+int __open64 (const char *file, int oflag, ...) {
+        int mode = 0;
+
+  if (oflag & O_CREAT)
+    {
+      va_list arg;
+      va_start (arg, oflag);
+      mode = va_arg (arg, int);
+      va_end (arg);
+    }
+
+	return open(file, oflag, mode);
+}
+
+int __open64_2 (const char *file, int oflag)
+{
+  return __open64 (file, oflag);
+}
+
 char *bindtextdomain(const char *domainname, const char *dirname)
 {
 	static const char dir[] = "/";

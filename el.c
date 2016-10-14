@@ -38,25 +38,6 @@ int symbol_get_size(void *ptr) {
 	// TODO
 }
 
-int __open64 (const char *file, int oflag, ...) {
-        int mode = 0;
-
-  if (oflag & O_CREAT)
-    {
-      va_list arg;
-      va_start (arg, oflag);
-      mode = va_arg (arg, int);
-      va_end (arg);
-    }
-
-	return open(file, oflag, mode);
-}
-
-int __open64_2 (const char *file, int oflag)
-{
-  return __open64 (file, oflag);
-}
-
 char *libnm(char *nm) {
 	char *result = malloc(strlen(nm)+6);
 	strcpy(result, nm);
@@ -81,6 +62,7 @@ typedef struct {
 
 function_t functions[8000];
 
+#define DEBUG
 #include "undef.h"
 
 int function_count = 0;
@@ -333,6 +315,34 @@ static int section_by_name(int d, char const *section_name, Elf_Shdr **section)
     return 0;
 }
 
+uint32_t get_got_addr(char *nm) {
+			void *libhandle =  dlopen(nm, RTLD_NOW | RTLD_GLOBAL);
+			void *lib = LIBRARY_ADDRESS_BY_HANDLE(libhandle);
+			char fname[255];
+			dlinfo(libhandle, RTLD_DI_ORIGIN, fname);
+			char fname2[255];
+			sprintf(fname2, "%s/%s", fname, nm);
+                        int descriptor = open(fname2, O_RDONLY);
+                        Elf_Shdr *got;
+                        section_by_name(descriptor, ".got", &got);
+			close(descriptor);
+                        void *got_table = (void *)(((size_t)lib) + got->sh_addr);
+			return (uint32_t)got_table;
+}
+
+uint32_t get_got_count(char *nm) {
+	void *libhandle = dlopen(nm, RTLD_NOW | RTLD_GLOBAL);
+	char fname[255];
+	dlinfo(libhandle, RTLD_DI_ORIGIN, fname);
+	char fname2[255];
+	sprintf(fname2, "%s/%s", fname, nm);
+	int descriptor = open(fname2, O_RDONLY);
+	Elf_Shdr *got;
+	section_by_name(descriptor, ".got", &got);
+	close(descriptor);
+	return got->sh_size;
+}
+
 // from net
 
 #define HEXDUMP_COLS 8
@@ -385,6 +395,21 @@ void hexdump(void *mem, unsigned int len)
 
 
 /// end of taken
+
+
+void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
+	if (!strcmp(fname, "libc.so.6")) return;
+	uint32_t *got = (uint32_t*)get_got_addr(fname);
+	uint32_t count = get_got_count(fname);
+	int i;
+	for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
+		printf("replacing the symbol in %s\n", fname);
+		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
+		got[i] = (uint32_t)addr;
+		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
+		break;
+	}
+}
 
 int main(int argc, char* argv[]) {
   int i;
@@ -547,29 +572,11 @@ int main(int argc, char* argv[]) {
 
       for (neededp = needed; *neededp; neededp++) {
         printf("needed: %s", dstr + *neededp);
-	/* TODO: temporarily we are not loading the libs */
 	void *libpointer = dlopen(libnm(dstr + *neededp), RTLD_NOW | RTLD_GLOBAL);
         if (!libpointer) {
 		printf(" (not found)\n");
 	} else {
 		printf(" (loaded)\n");
-		if (!strncmp(dstr + *neededp, "libncurses", 10)) {
-			printf("aha, ncurses!\n");
-			void *lib = LIBRARY_ADDRESS_BY_HANDLE(libpointer);
-			printf("pointer to lib is %p\n", lib);
-			int descriptor = open("/usr/lib32/libncurses.so", O_RDONLY);
-			Elf_Shdr *got;
-			section_by_name(descriptor, ".got", &got);
-			Elf_Shdr *bss;
-			section_by_name(descriptor, ".bss", &bss);
-			Elf_Rel *bss_table = (Elf_Rel *)(((size_t)lib) + bss->sh_addr);
-			printf("bss_table = %p\n", bss_table);
-			Elf_Rel *got_table = (Elf_Rel *)(((size_t)lib) + got->sh_addr);
-			printf("got_table = %p\n", got_table);
-			for (i = 0; i < got->sh_size; i++) {
-				printf("entry %d (0x%X): offset=%p info=%X\n", i, (uint32_t)got_table + i*8, got_table[i].r_offset, got_table[i].r_info);
-			}
-		}
 	}
       }
 
@@ -625,32 +632,24 @@ int main(int argc, char* argv[]) {
 	    /*R_386_COPY	read a string of bytes from the "symbol" address and deposit a copy into this location; the "symbol" object has an intrinsic length 
 	      i.e. move initialized data from a library down into the app data space */
               if (val) {
-	      		// TODO: this has to be implemented in a way that we patch the libraries already loaded to point to those "new" symbols. Otherwise we have a situation where the binary is pointing to *addr, and the libs are pointing to val.
+		      memcpy((void*)addr, (void*)val, symbol_get_size(val));
 		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
-		      //fprintf(stderr, "data: addr=%p, *addr=%p, val=%p *val=%p\n", addr, *addr, val, *(uint32_t*)val);
-//                *addr = (int) val; /*(int)malloc(symbol_get_size(val));*/
-	/*memcpy((void*)addr, (void*)val, symbol_get_size(val));*/
-	
-	Dl_info info;
-	dladdr(val, &info);
-	if (info.dli_saddr == val) {
-		printf("found symbol %s @ %p in loaded lib %s (%p)\n", info.dli_sname, val, info.dli_fname, info.dli_fbase);
-		if (!strcmp(sname, "LINES")) {
-			#define LINES_ADDR 0x5afc8  // TODO: how to get this? this is in .got 
-			printf("unlocking %X\n", info.dli_fbase + LINES_ADDR);
-			mprotect((void*)((uint32_t)(info.dli_fbase + LINES_ADDR) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE); // TODO: is exec needed?
-			uint32_t *ddr = (uint32_t*)(info.dli_fbase + LINES_ADDR);
-			printf("going to replace 0x%08X with 0x%08X\n", (uint32_t)ddr[0], (uint32_t)addr);
-			ddr[0] = (uint32_t)addr;
-			mprotect((void*)((uint32_t)(info.dli_fbase + LINES_ADDR) & 0xFFFFF000), 0x1000, PROT_READ);
-		}
-	}
+			      // very primitive got replacement
+			      Dl_info info;
+		              dladdr(val, &info);
 
+         		if (info.dli_saddr == val) {
+	         		printf("found symbol %s of size %d @ %p in loaded lib %s (%p)\n", info.dli_sname, symbol_get_size(val), val, info.dli_fname, info.dli_fbase);
+				for (neededp = needed; *neededp; neededp++) {
+					printf("trying to replace symbol in %s\n", dstr + *neededp);
+					replace_symbol(dstr + *neededp, (uint32_t)val, (uint32_t)addr);
+				}
 
-		      } else *addr = *(int*)val;
+			}
+		} /*else *addr = *(int*)val;*/
               } else {
                 fprintf(stderr, "undefined symbol %s\n", sname);
-		//abort();
+		abort();
               }
 	      break;
             }
@@ -659,7 +658,7 @@ int main(int argc, char* argv[]) {
                 *addr = (int)val;
               } else {
                 fprintf(stderr, "undefined data %s\n", sname);
-		*addr = 0;
+		//*addr = 0;
               }
               break;
             }
