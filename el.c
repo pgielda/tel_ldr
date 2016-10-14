@@ -16,15 +16,11 @@
 #include <stdarg.h>
 
 #ifdef __linux__
-#include <execinfo.h>
-#include <sys/procfs.h>
-#include <link.h>
 #include <elf.h>
-#include <sys/types.h>
 
 int symbol_get_size(void *ptr) {
          Dl_info dl_info;
-         ElfW(Sym) *elf_info;
+         Elf32_Sym *elf_info;
          dladdr1(ptr, &dl_info, (void **) &elf_info, RTLD_DL_SYMENT);
          return elf_info->st_size;
 }
@@ -177,17 +173,14 @@ char *nm(int id) {
 #define PT_TLS     7
 
 #define ELF_MAGIC 0x464C457F
+#define  LIBRARY_ADDRESS_BY_HANDLE(dlhandle) ((NULL == dlhandle) ? NULL :  (void*)*(size_t const*)(dlhandle)) 
 
 // taken form ELF-Hook 
 
-#define Elf_Sym Elf32_Sym
-#define Elf_Shdr Elf32_Shdr
+#ifdef __linux__
+
 #define Elf_Ehdr Elf32_Ehdr
 #define Elf_Rel Elf32_Rel
-
-#define  LIBRARY_ADDRESS_BY_HANDLE(dlhandle) ((NULL == dlhandle) ? NULL :  (void*)*(size_t const*)(dlhandle)) 
-
-
 
 static int read_header(int d, Elf_Ehdr **header)
 {
@@ -196,87 +189,69 @@ static int read_header(int d, Elf_Ehdr **header)
     {
         return errno;
     }
-
     if (lseek(d, 0, SEEK_SET) < 0)
     {
         free(*header);
-
         return errno;
     }
-
     if (read(d, *header, sizeof(Elf_Ehdr)) <= 0)
     {
         free(*header);
-
         return errno = EINVAL;
     }
-
     return 0;
 }
 
-static int read_section_table(int d, Elf_Ehdr const *header, Elf_Shdr **table)
+static int read_section_table(int d, Elf_Ehdr const *header, Elf32_Shdr **table)
 {
     size_t size;
-
     if (NULL == header)
         return EINVAL;
-
-    size = header->e_shnum * sizeof(Elf_Shdr);
-    *table = (Elf_Shdr *)malloc(size);
+    size = header->e_shnum * sizeof(Elf32_Shdr);
+    *table = (Elf32_Shdr *)malloc(size);
     if(NULL == *table)
     {
         return errno;
     }
-
     if (lseek(d, header->e_shoff, SEEK_SET) < 0)
     {
         free(*table);
-
         return errno;
     }
-
     if (read(d, *table, size) <= 0)
     {
         free(*table);
-
         return errno = EINVAL;
     }
-
     return 0;
 }
 
-static int read_string_table(int d, Elf_Shdr const *section, char const **strings)
+static int read_string_table(int d, Elf32_Shdr const *section, char const **strings)
 {
     if (NULL == section)
         return EINVAL;
-
     *strings = (char const *)malloc(section->sh_size);
     if(NULL == *strings)
     {
         return errno;
     }
-
     if (lseek(d, section->sh_offset, SEEK_SET) < 0)
     {
         free((void *)*strings);
-
         return errno;
     }
-
     if (read(d, (char *)*strings, section->sh_size) <= 0)
     {
         free((void *)*strings);
-
         return errno = EINVAL;
     }
-
     return 0;
 }
 
-static int section_by_name(int d, char const *section_name, Elf_Shdr **section)
+static int section_by_name(int d, char const *section_name, Elf32_Shdr **section)
 {
     Elf_Ehdr *header = NULL;
-    Elf_Shdr *sections = NULL;
+    Elf32_Shdr *sections = NULL;
     char const *strings = NULL;
     size_t i;
 
@@ -292,26 +267,23 @@ static int section_by_name(int d, char const *section_name, Elf_Shdr **section)
     for (i = 0; i < header->e_shnum; ++i)
         if (!strcmp(section_name, &strings[sections[i].sh_name]))
         {
-            *section = (Elf_Shdr *)malloc(sizeof(Elf_Shdr));
+            *section = (Elf32_Shdr *)malloc(sizeof(Elf32_Shdr));
 
             if (NULL == *section)
             {
                 free(header);
                 free(sections);
                 free((void *)strings);
-
                 return errno;
             }
 
-            memcpy(*section, sections + i, sizeof(Elf_Shdr));
-
+            memcpy(*section, sections + i, sizeof(Elf32_Shdr));
             break;
         }
 
     free(header);
     free(sections);
     free((void *)strings);
-
     return 0;
 }
 
@@ -323,7 +295,7 @@ uint32_t get_got_addr(char *nm) {
 			char fname2[255];
 			sprintf(fname2, "%s/%s", fname, nm);
                         int descriptor = open(fname2, O_RDONLY);
-                        Elf_Shdr *got;
+                        Elf32_Shdr *got;
                         section_by_name(descriptor, ".got", &got);
 			close(descriptor);
                         void *got_table = (void *)(((size_t)lib) + got->sh_addr);
@@ -337,11 +309,26 @@ uint32_t get_got_count(char *nm) {
 	char fname2[255];
 	sprintf(fname2, "%s/%s", fname, nm);
 	int descriptor = open(fname2, O_RDONLY);
-	Elf_Shdr *got;
+	Elf32_Shdr *got;
 	section_by_name(descriptor, ".got", &got);
 	close(descriptor);
 	return got->sh_size;
 }
+
+void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
+	if (!strncmp(fname, "libc.", 5)) return;
+	uint32_t *got = (uint32_t*)get_got_addr(fname);
+	uint32_t count = get_got_count(fname);
+	int i;
+	for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
+		printf("replacing the symbol in %s\n", fname);
+		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
+		got[i] = (uint32_t)addr;
+		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
+		break;
+	}
+}
+#endif
 
 // from net
 
@@ -393,23 +380,7 @@ void hexdump(void *mem, unsigned int len)
 }
 
 
-
 /// end of taken
-
-
-void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
-	if (!strcmp(fname, "libc.so.6")) return;
-	uint32_t *got = (uint32_t*)get_got_addr(fname);
-	uint32_t count = get_got_count(fname);
-	int i;
-	for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
-		printf("replacing the symbol in %s\n", fname);
-		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
-		got[i] = (uint32_t)addr;
-		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
-		break;
-	}
-}
 
 int main(int argc, char* argv[]) {
   int i;
