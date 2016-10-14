@@ -553,23 +553,23 @@ int main(int argc, char* argv[]) {
 		printf(" (not found)\n");
 	} else {
 		printf(" (loaded)\n");
-		#if 0
 		if (!strncmp(dstr + *neededp, "libncurses", 10)) {
 			printf("aha, ncurses!\n");
 			void *lib = LIBRARY_ADDRESS_BY_HANDLE(libpointer);
 			printf("pointer to lib is %p\n", lib);
 			int descriptor = open("/usr/lib32/libncurses.so", O_RDONLY);
-			  Elf_Shdr *rel_dyn ;
-			section_by_name(descriptor, ".rel.dyn", &rel_dyn);
-			    Elf_Rel *rel_dyn_table = (Elf_Rel *)(((size_t)lib) + rel_dyn->sh_addr);
-			    printf("rel_dyn_table = %p\n", rel_dyn_table);
-			    
-			// TODO: we have to find and substitute some global symbols here !
-		//	hexdump(lib, 400000);
-			void *ptr = (void*)(LIBRARY_ADDRESS_BY_HANDLE(libpointer) + 0x5afc8); // this is LINES!
-			hexdump(ptr, 4);
+			Elf_Shdr *got;
+			section_by_name(descriptor, ".got", &got);
+			Elf_Shdr *bss;
+			section_by_name(descriptor, ".bss", &bss);
+			Elf_Rel *bss_table = (Elf_Rel *)(((size_t)lib) + bss->sh_addr);
+			printf("bss_table = %p\n", bss_table);
+			Elf_Rel *got_table = (Elf_Rel *)(((size_t)lib) + got->sh_addr);
+			printf("got_table = %p\n", got_table);
+			for (i = 0; i < got->sh_size; i++) {
+				printf("entry %d (0x%X): offset=%p info=%X\n", i, (uint32_t)got_table + i*8, got_table[i].r_offset, got_table[i].r_info);
+			}
 		}
-		#endif
 	}
       }
 
@@ -637,8 +637,10 @@ int main(int argc, char* argv[]) {
 		printf("found symbol %s @ %p in loaded lib %s (%p)\n", info.dli_sname, val, info.dli_fname, info.dli_fbase);
 		if (!strcmp(sname, "LINES")) {
 			#define LINES_ADDR 0x5afc8  // TODO: how to get this? this is in .got 
+			printf("unlocking %X\n", info.dli_fbase + LINES_ADDR);
 			mprotect((void*)((uint32_t)(info.dli_fbase + LINES_ADDR) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE); // TODO: is exec needed?
 			uint32_t *ddr = (uint32_t*)(info.dli_fbase + LINES_ADDR);
+			printf("going to replace 0x%08X with 0x%08X\n", (uint32_t)ddr[0], (uint32_t)addr);
 			ddr[0] = (uint32_t)addr;
 			mprotect((void*)((uint32_t)(info.dli_fbase + LINES_ADDR) & 0xFFFFF000), 0x1000, PROT_READ);
 		}
