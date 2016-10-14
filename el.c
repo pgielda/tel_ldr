@@ -295,11 +295,7 @@ static int section_by_name(int d, char const *section_name, Elf32_Shdr **section
 uint32_t get_got_addr(char *nm) {
 			void *libhandle =  dlopen(nm, RTLD_NOW | RTLD_GLOBAL);
 			void *lib = LIBRARY_ADDRESS_BY_HANDLE(libhandle);
-			char fname[255];
-			dlinfo(libhandle, RTLD_DI_ORIGIN, fname);
-			char fname2[255];
-			sprintf(fname2, "%s/%s", fname, nm);
-                        int descriptor = open(fname2, O_RDONLY);
+                        int descriptor = open(nm, O_RDONLY);
                         Elf32_Shdr *got;
                         section_by_name(descriptor, ".got", &got);
 			close(descriptor);
@@ -308,12 +304,7 @@ uint32_t get_got_addr(char *nm) {
 }
 
 uint32_t get_got_count(char *nm) {
-	void *libhandle = dlopen(nm, RTLD_NOW | RTLD_GLOBAL);
-	char fname[255];
-	dlinfo(libhandle, RTLD_DI_ORIGIN, fname);
-	char fname2[255];
-	sprintf(fname2, "%s/%s", fname, nm);
-	int descriptor = open(fname2, O_RDONLY);
+	int descriptor = open(nm, O_RDONLY);
 	Elf32_Shdr *got;
 	section_by_name(descriptor, ".got", &got);
 	close(descriptor);
@@ -321,7 +312,6 @@ uint32_t get_got_count(char *nm) {
 }
 
 void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
-	if (!strncmp(fname, "libc.", 5)) return;
 	uint32_t *got = (uint32_t*)get_got_addr(fname);
 	uint32_t count = get_got_count(fname);
 	int i;
