@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <libgen.h>
 
 #ifdef __linux__
 #include <elf.h>
@@ -386,6 +387,18 @@ void hexdump(void *mem, unsigned int len)
 
 /// end of taken
 
+char* library_list[255];
+int library_count = 0;
+void add_library(char *nm) {
+	int i;
+	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return;
+	if (!strncmp(basename(nm), "libsystem",9)) return; // TODO: we have to extract the filename
+	if (!strncmp(basename(nm), "libc.", 5)) return; // TODO: as above
+	// TODO: also omit itself!
+	library_list[library_count] = strdup(nm);
+	library_count++;
+}
+
 int main(int argc, char* argv[]) {
   int i;
   int fd, len;
@@ -574,7 +587,7 @@ int main(int argc, char* argv[]) {
 		Dl_info info;
                 dladdr(val, &info);
 		printf("Successfully resolved %s as %p @ %s\n", sname, val, info.dli_fname);
-	        // TODO: add info.dli_fname to a list that is used later on.
+	        add_library((char*)info.dli_fname);
 	    }
 	}
 	rel = oldrel;
@@ -636,9 +649,10 @@ int main(int argc, char* argv[]) {
 
          		if (info.dli_saddr == val) {
 	         		printf("found symbol %s of size %d @ %p in loaded lib %s (%p)\n", info.dli_sname, symbol_get_size(val), val, info.dli_fname, info.dli_fbase);
-				for (neededp = needed; *neededp; neededp++) {
-					printf("trying to replace symbol in %s\n", dstr + *neededp);
-					replace_symbol(dstr + *neededp, (uint32_t)val, (uint32_t)addr);
+				int iter;
+				for (iter = 0; iter < library_count; iter++) { 
+					printf("trying to replace symbol in %s\n", library_list[iter]);
+					replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)addr);
 				}
 
 			}
