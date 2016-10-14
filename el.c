@@ -309,7 +309,6 @@ void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
 		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
 		got[i] = (uint32_t)addr;
 		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
-		break;
 	}
 }
 #endif
@@ -622,7 +621,7 @@ int main(int argc, char* argv[]) {
 	      i.e. move initialized data from a library down into the app data space */
               if (val) {
 		      memcpy((void*)addr, (void*)val, *sz);
-		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
+		      if ((val != &stdout) && (val != &stdin) && (val != &stderr) && (*sz > 0)) {
 			      // very primitive got replacement
 			      Dl_info info;
 		              dladdr(val, &info);
@@ -631,7 +630,7 @@ int main(int argc, char* argv[]) {
 	         		printf("found symbol %s of size %d @ %p in loaded lib %s (%p)\n", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
 				int iter;
 				for (iter = 0; iter < library_count; iter++) { 
-					printf("trying to replace symbol in %s\n", library_list[iter]);
+					//printf("trying to replace symbol in %s\n", library_list[iter]);
 					replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)addr);
 				}
 
