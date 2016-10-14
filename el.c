@@ -65,7 +65,7 @@ char *libnm(char *nm) {
 }
 #endif
 
-void error(const char* msg) {
+void pr_error(const char* msg) {
   perror(msg);
   abort();
 }
@@ -201,22 +201,22 @@ int main(int argc, char* argv[]) {
   int entry, phoff, phnum, init;
   int* ph;
   if (argc < 2)
-    error("Usage: el <elf>");
+    pr_error("Usage: el <elf>");
   printf("loading %s\n", argv[1]);
   fd = open(argv[1], O_RDONLY);
   if (fd < 0)
-    error("Usage: el <elf>");
+    pr_error("Usage: el <elf>");
   len = lseek(fd, 0, SEEK_END);
   elf = malloc(len);
   lseek(fd, 0, SEEK_SET);
   read(fd, elf, len);
   if (*(int*)elf != ELF_MAGIC) {
     close(fd);
-    error("not elf");
+    pr_error("not elf");
   }
   if ((*(int*)(elf+16) != 0x30002) && (*(int*)(elf+16) != 0x30003)) {
    close(fd);
-   error("not i386 exec");
+   pr_error("not i386 exec");
   }
 
   __progname = strdup(argv[0]);
@@ -255,7 +255,7 @@ int main(int argc, char* argv[]) {
              psize, pafsize, pflag, paddr, prot, poff);
       if (mmap((void*)paddr, pafsize, prot, MAP_FILE|MAP_PRIVATE|MAP_FIXED,
                fd, poff) == MAP_FAILED) {
-        error("mmap(file)");
+        pr_error("mmap(file)");
       }
       if ((prot & PROT_WRITE)) {
         printf("%p\n", (char*)paddr);
@@ -267,7 +267,7 @@ int main(int argc, char* argv[]) {
           if (mmap((void*)(paddr + pfsize),
                    psize - pfsize, prot, MAP_ANON|MAP_PRIVATE,
                    -1, 0) == MAP_FAILED) {
-            error("mmap(anon)");
+            pr_error("mmap(anon)");
           }
         }
       }
@@ -350,7 +350,7 @@ int main(int argc, char* argv[]) {
       }
 
       if (!dsym || !dstr) {
-        error("no dsym or dstr");
+        pr_error("no dsym or dstr");
       }
 
       for (neededp = needed; *neededp; neededp++) {
