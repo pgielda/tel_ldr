@@ -23,7 +23,7 @@ static void inner_log(char* source, const char* text, va_list argList, char *typ
 {
     char color_s[10];
     if (COLORS) {
-            sprintf(color_s, "\e[1;%dm", color);
+            sprintf(color_s, "\x1b[1;%dm", color);
     }
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -31,7 +31,7 @@ static void inner_log(char* source, const char* text, va_list argList, char *typ
     int Minute = (tv.tv_sec - Hour * 3600) / 60;
     char Buff[9];
     sprintf(Buff, "%02d:%02d:%02d", Hour, Minute, (unsigned int) (tv.tv_sec % 60));
-    fprintf(stderr, "[%s%s%s @ %s] %s%s%s: ", COLORS ? color_s : "", type, COLORS ? "\e[21;39m" : "", Buff, COLORS ? "\e[1;37m" : "", source, COLORS ? "\e[21;39m" : "");
+    fprintf(stderr, "[%s%s%s @ %s] %s%s%s: ", COLORS ? color_s : "", type, COLORS ? "\x1b[21;39m" : "", Buff, COLORS ? "\x1b[1;37m" : "", source, COLORS ? "\x1b[21;39m" : "");
     vfprintf(stderr, text, argList);
     fprintf(stderr, "\n\r");
 }
@@ -428,6 +428,7 @@ int main(int argc, char* argv[]) {
   char* elf;
   int entry, phoff, phnum, init;
   int* ph;
+  printf("\x1b[31m TEST \x1b[0m\n");  // 31 .. 36 (red, green, yellow, blue, magenta, cyan)
   if (argc < 2)
     pr_error("Usage: el <elf>");
   printf("loading %s\n", argv[1]);
