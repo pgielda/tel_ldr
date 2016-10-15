@@ -17,6 +17,48 @@
 #include <ctype.h>
 #include <libgen.h>
 
+#define COLORS 1
+
+static void inner_log(char* source, const char* text, va_list argList, char *type, int color)
+{
+    char color_s[10];
+    if (COLORS) {
+            sprintf(color_s, "\e[1;%dm", color);
+    }
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    int Hour = tv.tv_sec / 3600;
+    int Minute = (tv.tv_sec - Hour * 3600) / 60;
+    char Buff[9];
+    sprintf(Buff, "%02d:%02d:%02d", Hour, Minute, (unsigned int) (tv.tv_sec % 60));
+    fprintf(stderr, "[%s%s%s @ %s] %s%s%s: ", COLORS ? color_s : "", type, COLORS ? "\e[21;39m" : "", Buff, COLORS ? "\e[1;37m" : "", source, COLORS ? "\e[21;39m" : "");
+    vfprintf(stderr, text, argList);
+    fprintf(stderr, "\n\r");
+}
+
+#define LOG_WARNING "WRN", 95
+#define LOG_INFO "INF", 34
+#define LOG_TRACE "TRC", 39
+#define LOG_DEBUG "DBG", 39
+#define LOG_ERROR "ERR", 91
+#define LOG_IGNORE "IGN", 39
+
+
+void log_msg(char *type, int color, char* source, const char* text, ...) 
+{
+    va_list argList;
+    va_start(argList, text);
+    inner_log(source, text, argList, type, color);
+    va_end(argList);
+	
+}
+	
+void vlog_msg(char *type, int color, char* source, const char* text, va_list argList)
+{
+    inner_log(source, text, argList, type, color);
+}	
+
+
 #ifdef __linux__
 
 #include <elf.h>
@@ -583,25 +625,25 @@ int main(int argc, char* argv[]) {
 	    uint32_t *sz = (uint32_t*)(dsym + 16 * sym + 8);
             void* val=0;
             int k;
-            for(k=0;T[k].n;k++){
-              if(!strcmp(sname,T[k].n)){
+            for (k=0; T[k].n; k++) {
+              if (!strcmp(sname,T[k].n)) {
                  val = T[k].f;
                  break;
               }
             }
 
-            if(!val){
+            if (!val) {
 		val = dlsym(RTLD_DEFAULT, sname);
             }
 
 	    #ifdef __MACH__
-              if(!val) {
+            if (!val) {
                         if (!strcmp(sname, "stdin")) val = &stdin;
                         if (!strcmp(sname, "stdout")) val = &stdout;
                         if (!strcmp(sname, "stderr")) val = &stderr;
 			if (!strcmp(sname, "__environ")) val = (void*)_NSGetEnviron();
-                }
-	#endif 
+            }
+ 	    #endif 
             fprintf(stderr, "%srel: %p %s(%d) (type=%d %s) => %p\n",
                    j ? "plt" : "", (void*)addr, sname, sym, type, nm(type), val);
 
@@ -627,7 +669,7 @@ int main(int argc, char* argv[]) {
 		              dladdr(val, &info);
 
          		if (info.dli_saddr == val) {
-	         		printf("found symbol %s of size %d @ %p in loaded lib %s (%p)\n", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
+	         		log_msg(LOG_WARNING, "ELF_LOADER", "found symbol %s of size %d @ %p in loaded lib %s (%p)", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
 				int iter;
 				for (iter = 0; iter < library_count; iter++) { 
 					//printf("trying to replace symbol in %s\n", library_list[iter]);
@@ -652,15 +694,11 @@ int main(int argc, char* argv[]) {
               break;
             }
             case R_386_JMP_SLOT: {
-              if (val) {
-                *addr = (int)add_function(sname, (uint32_t)val);
-              } else {
-	        fprintf(stderr, "undefined function %s\n", sname);
-                *addr = (int)add_function(sname, 0);
-              }
+              if (!val) fprintf(stderr, "undefined function %s\n", sname);
+              *addr = (int)add_function(sname, (uint32_t)val);
               break;
             }
-            }
+	   }
           }
 
           if ((int)pltrel != 17) {
