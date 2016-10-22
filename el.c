@@ -27,11 +27,12 @@ static void inner_log(char* source, const char* text, va_list argList, char *typ
     }
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    int Hour = tv.tv_sec / 3600;
-    int Minute = (tv.tv_sec - Hour * 3600) / 60;
+    int tv_sec = tv.tv_sec % (3600*24);
+    int Hour = tv_sec / 3600;
+    int Minute = (tv_sec - Hour * 3600) / 60;
     char Buff[9];
     sprintf(Buff, "%02d:%02d:%02d", Hour, Minute, (unsigned int) (tv.tv_sec % 60));
-    fprintf(stderr, "[%s%s%s @ %s] %s%s%s: ", COLORS ? color_s : "", type, COLORS ? "\x1b[21;39m" : "", Buff, COLORS ? "\x1b[1;37m" : "", source, COLORS ? "\x1b[21;39m" : "");
+    fprintf(stderr, "[%s%s%s @ %s] %s%s%s: ", COLORS ? color_s : "", type, COLORS ? "\x1b[0m" : "", Buff, COLORS ? "\x1b[1;37m" : "", source, COLORS ? "\x1b[21;39m" : "");
     vfprintf(stderr, text, argList);
     fprintf(stderr, "\n\r");
 }
@@ -347,7 +348,7 @@ void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
 	uint32_t count = get_got_count(fname);
 	int i;
 	for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
-		printf("replacing the symbol in %s\n", fname);
+		log_msg(LOG_INFO, "ELF_LOADER", "replacing the symbol in %s", fname);
 		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
 		got[i] = (uint32_t)addr;
 		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
@@ -409,17 +410,18 @@ void hexdump(void *mem, unsigned int len)
 
 char* library_list[255];
 int library_count = 0;
-void add_library(char *nm) {
+int add_library(char *nm) {
 	int i;
-	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return;
-	if (!strncmp(basename(nm), "libsystem",9)) return;
-	if (!strncmp(basename(nm), "libc.", 5)) return; 
+	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return 0;
+	if (!strncmp(basename(nm), "libsystem",9)) return 0;
+	if (!strncmp(basename(nm), "libc.", 5)) return 0; 
         Dl_info info;
         dladdr(add_library, &info);
-	if (!strcmp(basename(nm), basename((char*)info.dli_fname))) return;
+	if (!strcmp(basename(nm), basename((char*)info.dli_fname))) return 0;
 	// TODO: also omit itself!
 	library_list[library_count] = strdup(nm);
 	library_count++;
+	return 1;
 }
 
 int main(int argc, char* argv[]) {
@@ -428,10 +430,9 @@ int main(int argc, char* argv[]) {
   char* elf;
   int entry, phoff, phnum, init;
   int* ph;
-  printf("\x1b[31m TEST \x1b[0m\n");  // 31 .. 36 (red, green, yellow, blue, magenta, cyan)
   if (argc < 2)
     pr_error("Usage: el <elf>");
-  printf("loading %s\n", argv[1]);
+  log_msg(LOG_INFO, "APP", "loading %s", argv[1]);
   fd = open(argv[1], O_RDONLY);
   if (fd < 0)
     pr_error("Usage: el <elf>");
@@ -454,7 +455,6 @@ int main(int argc, char* argv[]) {
   entry = *(int*)(elf+24);
   phoff = *(int*)(elf+28);
   phnum = *(int*)(elf+42);
-  printf("%x %x %x\n", entry, phoff, phnum);
 
   ph = (int*)(elf + phoff);
   for (i = 0; i < phnum >> 16; i++) {
@@ -480,14 +480,13 @@ int main(int argc, char* argv[]) {
       paddr &= ~0xfff;
       pafsize = (pfsize + 0xfff) & ~0xfff;
       psize = (psize + 0xfff) & ~0xfff;
-      printf("PT_LOAD size=%d fsize=%d flag=%d addr=%x prot=%d poff=%d\n",
+      log_msg(LOG_INFO, "ELF_LOADER", "PT_LOAD size=%d fsize=%d flag=%d addr=%x prot=%d poff=%d",
              psize, pafsize, pflag, paddr, prot, poff);
       if (mmap((void*)paddr, pafsize, prot, MAP_FILE|MAP_PRIVATE|MAP_FIXED,
                fd, poff) == MAP_FAILED) {
         pr_error("mmap(file)");
       }
       if ((prot & PROT_WRITE)) {
-        printf("%p\n", (char*)paddr);
         for (; pfsize < pafsize; pfsize++) {
           char* p = (char*)paddr;
           p[pfsize] = 0;
@@ -503,12 +502,12 @@ int main(int argc, char* argv[]) {
       break;
     }
     case PT_INTERP: {
-		  printf("omitting PT_INTERP\n");
+		  log_msg(LOG_WARNING, "ELF_LOADER", "omitting PT_INTERP");
 		  break;
 		    }
 
     case PT_PHDR: {
-		  printf("omitting PT_PHDR\n");
+		  log_msg(LOG_WARNING, "ELF_LOADER", "omitting PT_PHDR");
 		  break;
 		  }
 
@@ -520,7 +519,6 @@ int main(int argc, char* argv[]) {
       char* pltrel = NULL;
       int relsz, relent, pltrelsz = 0;
       int needed[999] = {}, *neededp = needed;
-      puts("PT_DYNAMIC");
       dyn = elf + poff;
       
       for (;;) {
@@ -540,41 +538,41 @@ int main(int argc, char* argv[]) {
         }
         case DT_PLTRELSZ: {
           pltrelsz = dval;
-          printf("pltrelsz: %d\n", pltrelsz);
+          //printf("pltrelsz: %d\n", pltrelsz);
           break;
         }
 	case DT_STRTAB: {
           dstr = (char*)dval;
-          printf("dstr: %p %s\n", dstr, dstr+1);
+          //printf("dstr: %p %s\n", dstr, dstr+1);
           break;
         }
         case DT_SYMTAB: {
           dsym = (char*)dval;
-          printf("dsym: %p\n", dsym);
+          //printf("dsym: %p\n", dsym);
           break;
         }
         case DT_REL: {
           rel = (char*)dval;
-          printf("rel: %p\n", rel);
+          //printf("rel: %p\n", rel);
           break;
         }
         case DT_RELSZ: {
           relsz = dval;
-          printf("relsz: %d\n", relsz);
+          //printf("relsz: %d\n", relsz);
           break;
         }
         case DT_RELENT: {
           relent = dval;
-          printf("relent: %d\n", relent);
+          //printf("relent: %d\n", relent);
           break;
         }
         case DT_PLTREL: {
           pltrel = (char*)dval;
-          printf("pltrel: %p\n", pltrel);
+          //printf("pltrel: %p\n", pltrel);
           break;
         }
         default:
-          printf("unknown DYN dtag=%d dval=%X\n", dtag, dval);
+          log_msg(LOG_WARNING, "ELF_LOADER", "unknown DYN dtag=%d dval=%X", dtag, dval);
         }
       }
 
@@ -583,12 +581,12 @@ int main(int argc, char* argv[]) {
       }
 
       for (neededp = needed; *neededp; neededp++) {
-        printf("needed: %s", dstr + *neededp);
+        log_msg(LOG_INFO, "ELF_LOADER", "shared library needed: %s", dstr + *neededp);
 	void *libpointer = dlopen(libnm(dstr + *neededp), RTLD_NOW | RTLD_GLOBAL);
         if (!libpointer) {
-		printf(" (not found)\n");
+		log_msg(LOG_WARNING, "ELF_LOADER", "Library %s not found", dstr + *neededp);
 	} else {
-		printf(" (loaded)\n");
+		log_msg(LOG_INFO, "ELF_LOADER", "Library %s loaded", dstr+*neededp);
 	}
       }
 
@@ -609,8 +607,9 @@ int main(int argc, char* argv[]) {
 	    if (val) {
 		Dl_info info;
                 dladdr(val, &info);
-		printf("Successfully resolved %s as %p @ %s of size %d\n", sname, val, info.dli_fname, *sz);
-	        add_library((char*)info.dli_fname);
+	        if (add_library((char*)info.dli_fname)) {
+			log_msg(LOG_INFO, "ELF_LOADER", "Successfully resolved %s as %p @ %s of size %d", sname, val, info.dli_fname, *sz);
+		}
 	    }
 	}
 	rel = oldrel;
@@ -645,7 +644,7 @@ int main(int argc, char* argv[]) {
 			if (!strcmp(sname, "__environ")) val = (void*)_NSGetEnviron();
             }
  	    #endif 
-            fprintf(stderr, "%srel: %p %s(%d) (type=%d %s) => %p\n",
+            log_msg(LOG_INFO, "ELF_LOADER", "%srel: %p %s(%d) (type=%d %s) => %p",
                    j ? "plt" : "", (void*)addr, sname, sym, type, nm(type), val);
 
             switch (type) {
@@ -653,7 +652,7 @@ int main(int argc, char* argv[]) {
 	      if (val) {
                 *addr = (int)val;
 	      } else {
-	        fprintf(stderr, "undefined relocation %s\n", sname);
+	        log_msg(LOG_WARNING, "ELF_LOADER", "undefined relocation %s\n", sname);
 		*addr = 0;
 		abort();
 	      }
@@ -680,7 +679,7 @@ int main(int argc, char* argv[]) {
 			}
 		}
               } else {
-                fprintf(stderr, "undefined symbol %s\n", sname);
+                log_msg(LOG_WARNING, "ELF_LOADER", "undefined symbol %s", sname);
 		abort();
               }
 	      break;
@@ -689,13 +688,13 @@ int main(int argc, char* argv[]) {
               if (val) {
                 *addr = (int)val;
               } else {
-                fprintf(stderr, "undefined data %s\n", sname);
+                log_msg(LOG_WARNING, "ELF_LOADER", "undefined data %s", sname);
 		//*addr = 0;
               }
               break;
             }
             case R_386_JMP_SLOT: {
-              if (!val) fprintf(stderr, "undefined function %s\n", sname);
+              if (!val) log_msg(LOG_WARNING, "ELF_LOADER", "undefined function %s", sname);
               *addr = (int)add_function(sname, (uint32_t)val);
               break;
             }
@@ -712,20 +711,20 @@ int main(int argc, char* argv[]) {
       break;
     }
     case PT_NOTE:
-		 printf("omitting PT_NOTE\n");
+		 log_msg(LOG_INFO, "ELF_LOADER", "omitting PT_NOTE");
 		 break;
     default:
-      printf("unknown PT 0x%X\n", ph[0]);
+      log_msg(LOG_WARNING, "ELF_LOADER", "unknown PT 0x%X", ph[0]);
     }
     ph += 8;
   }
 
   g_argc = argc-1;
   g_argv = argv+1;
-  printf("init...\n");
+  log_msg(LOG_INFO, "APP", "our pid is %d", getpid());
+  log_msg(LOG_INFO, "APP", "init");
   ((void*(*)())init)();
-  printf("start!: %s %x\n", argv[1], entry);
-  printf("our pid is %d\n", getpid());
+  log_msg(LOG_INFO, "APP", "start!: %s %x", argv[1], entry);
   ((void*(*)(int, char**))entry)(argc, argv);
   // we should never return here
   return 1;

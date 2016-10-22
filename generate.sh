@@ -8,7 +8,7 @@ printf '#define asm_f(x) void Aundefined_##x () { __asm__("call " prefix "undefi
 echo
 echo '#define undefi_name(x) undefined_ ##x'
 echo "#ifdef DEBUG"
-printf '#define undefi(x) void* undefi_name(x) () { fprintf(stderr, "function #%%04d @ 0x%%08X (%%s)\\r\\n", x, functions[x].pointer, functions[x].name); return (void*)functions[x].pointer; }'
+printf '#define undefi(x) void* undefi_name(x) () { log_msg(LOG_INFO, "APP", "function #%%04d @ 0x%%08X (%%s)", x, functions[x].pointer, functions[x].name); return (void*)functions[x].pointer; }'
 echo
 echo "#else"
 printf '#define undefi(x) void* undefi_name(x) () { return (void*)functions[x].pointer; }'
