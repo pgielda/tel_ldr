@@ -16,6 +16,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <libgen.h>
+#include <time.h>
 
 #define COLORS 1
 
@@ -25,13 +26,12 @@ static void inner_log(char* source, const char* text, va_list argList, char *typ
     if (COLORS) {
             sprintf(color_s, "\x1b[1;%dm", color);
     }
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    int tv_sec = tv.tv_sec % (3600*24);
-    int Hour = tv_sec / 3600;
-    int Minute = (tv_sec - Hour * 3600) / 60;
+    time_t timer;
     char Buff[9];
-    sprintf(Buff, "%02d:%02d:%02d", Hour, Minute, (unsigned int) (tv.tv_sec % 60));
+    struct tm* tm_info;
+    time(&timer);
+    tm_info = localtime(&timer);
+    strftime(Buff, 9, "%H:%M:%S", tm_info);
     fprintf(stderr, "[%s%s%s @ %s] %s%s%s: ", COLORS ? color_s : "", type, COLORS ? "\x1b[0m" : "", Buff, COLORS ? "\x1b[1;37m" : "", source, COLORS ? "\x1b[21;39m" : "");
     vfprintf(stderr, text, argList);
     fprintf(stderr, "\n\r");
