@@ -369,7 +369,7 @@ void hexdump(void *mem, unsigned int len)
                 /* print offset */
                 if(i % HEXDUMP_COLS == 0)
                 {
-                        printf("0x%06x: ", i);
+                        printf("0x%08x: ", (uint32_t)mem + i);
                 }
  
                 /* print hex data */
@@ -427,6 +427,7 @@ int add_library(char *nm) {
 int main(int argc, char* argv[]) {
   int i;
   int fd, len;
+  int cnt = 0;
   char* elf;
   int entry, phoff, phnum, init;
   int* ph;
@@ -600,6 +601,7 @@ int main(int argc, char* argv[]) {
             int type = info & 0xff;
             int* ds = (int*)(dsym + 16 * sym);
 	    uint32_t *sz = (uint32_t*)(dsym + 16 * sym + 8);
+	    uint32_t *sym_addr = (uint32_t*)(dsym + 16 * sym + 4);
             char* sname = dstr + *ds;
 
             void* val=0;
@@ -607,9 +609,11 @@ int main(int argc, char* argv[]) {
 	    if (val) {
 		Dl_info info;
                 dladdr(val, &info);
-	        if (add_library((char*)info.dli_fname)) {
-			log_msg(LOG_INFO, "ELF_LOADER", "Successfully resolved %s as %p @ %s of size %d", sname, val, info.dli_fname, *sz);
-		}
+                if (*sym_addr) {
+                        log_msg(LOG_ERROR, "ELF_LOADER", "symbol %s '%s' : there is a conflict (%s@%p vs %p)", nm(type), sname, info.dli_fname,val, *sym_addr);
+                }
+		log_msg(LOG_INFO, "ELF_LOADER", "Successfully resolved %s as %p @ %s of size %d", sname, val, info.dli_fname, *sz);
+	        add_library((char*)info.dli_fname);
 	    }
 	}
 	rel = oldrel;
@@ -623,6 +627,7 @@ int main(int argc, char* argv[]) {
             int* ds = (int*)(dsym + 16 * sym);
             char* sname = dstr + *ds;
 	    uint32_t *sz = (uint32_t*)(dsym + 16 * sym + 8);
+	    uint32_t *sym_addr = (uint32_t*)(dsym + 16 * sym + 4);
             void* val=0;
             int k;
             for (k=0; T[k].n; k++) {
@@ -669,27 +674,43 @@ int main(int argc, char* argv[]) {
 		              dladdr(val, &info);
 
          		if (info.dli_saddr == val) {
-	         		log_msg(LOG_WARNING, "ELF_LOADER", "found symbol %s of size %d @ %p in loaded lib %s (%p)", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
+	         		log_msg(LOG_INFO, "ELF_LOADER", "found symbol %s of size %d @ %p in loaded lib %s (%p)", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
 				int iter;
+				log_msg(LOG_INFO, "ELF_LOADER", "trying to replace %s symbol %s in shared libs from %p to %p\n", nm(type), sname, val, addr);
 				for (iter = 0; iter < library_count; iter++) { 
-					//printf("trying to replace symbol in %s\n", library_list[iter]);
 					replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)addr);
 				}
 
 			}
 		}
               } else {
-                log_msg(LOG_WARNING, "ELF_LOADER", "undefined symbol %s", sname);
+                log_msg(LOG_ERROR, "ELF_LOADER", "undefined symbol %s", sname);
 		abort();
               }
 	      break;
             }
             case R_386_GLOB_DAT: {
-              if (val) {
-                *addr = (int)val;
+		// R_386_COPY and R_386_GLOB_DATA can be considered complements of each other. Suppose you have a global data object defined in a dynamic library. The library will have the binary version of the object in its .data space. When the application is built, the linker puts a R_386_COPY reloc in there to copy the data down to the application's .bss space. In turn, the library never references the original global object; it references the copy that is in the application data space, through a corresponding R_386_GLOB_DATA. Wierd, huh? After loading and copying, the original data (from the library) is never used; only the copy (in the app data space). 
+	      if (*sym_addr) {
+		      log_msg(LOG_INFO, "ELF_LOADER", "global data %s tied to local@%p", sname, *sym_addr);
+		      *addr = *sym_addr;
+		      if (val) log_msg(LOG_WARNING, "ELF_LOADER", "global data %s has also an external reference %p. It should have a matching R_386_COPY reference.", sname, val);
+	      } else if (val) {
+		      log_msg(LOG_INFO, "ELF_LOADER", "global data %s tied to external@%p", sname, val);
+	              *addr = (int)val;
               } else {
-                log_msg(LOG_WARNING, "ELF_LOADER", "undefined data %s", sname);
-		//*addr = 0;
+                      log_msg(LOG_ERROR, "ELF_LOADER", "undefined global data %s of size %d (cnt=%d)", sname, *sz, cnt);
+		      if (strcmp(sname, "__gmon_start__")) {
+			      abort();
+		      }
+#if 0
+		if (strcmp(sname, "__gmon_start__")) {
+			*addr = *sym_addr;
+			//*addr = malloc(*sz); // TODO
+			log_msg(LOG_WARNING, "ELF_LOADER", "pointing undefined global data %s of size %d to 0x%08X", sname, *sz, *addr);
+			cnt++;
+		}
+#endif
               }
               break;
             }
