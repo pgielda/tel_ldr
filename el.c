@@ -68,7 +68,23 @@ void vlog_msg(char *type, int color, char* source, const char* text, va_list arg
 #elif __MACH__
 
 #include <crt_externs.h>
-void replace_symbol(char *nm, uint32_t addr, uint32_t val) {
+
+void replace_symbol(char *nm, uint32_t orig, uint32_t addr) {
+			int i;
+			Dl_info info;
+                        dladdr((void*)orig, &info);
+			uint32_t *got = (uint32_t*)info.dli_fbase;
+			log_msg(LOG_INFO, "ELF_LOADER", "library %s @ %p, looking for 0x%08X, replace with 0x%08X", nm, got, orig, addr);
+			uint32_t count = 260000;
+			for (i = 0; i < count; i++) {
+				if (got[i] == (uint32_t)orig) {
+					mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
+					got[i] = addr;
+					log_msg(LOG_INFO, "ELF_LOADER", "Symbol found at position %d!!!", i);
+					mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
+					break;
+				}
+			}
 }
 
 char *libnm(char *nm) {
@@ -352,6 +368,7 @@ void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
 		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
 		got[i] = (uint32_t)addr;
 		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
+		break;
 	}
 }
 #endif
@@ -412,13 +429,14 @@ char* library_list[255];
 int library_count = 0;
 int add_library(char *nm) {
 	int i;
+	char nm_b[255];
+	strcpy(nm_b, basename(nm));
 	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return 0;
-	if (!strncmp(basename(nm), "libsystem",9)) return 0;
-	if (!strncmp(basename(nm), "libc.", 5)) return 0; 
+	if (!strncmp(nm_b, "libsystem",9)) return 0;
+	if (!strncmp(nm_b, "libc.", 5)) return 0;
         Dl_info info;
         dladdr(add_library, &info);
-	if (!strcmp(basename(nm), basename((char*)info.dli_fname))) return 0;
-	// TODO: also omit itself!
+        if (!strcmp(nm_b, basename((char*)info.dli_fname))) return 0;
 	library_list[library_count] = strdup(nm);
 	library_count++;
 	return 1;
@@ -676,7 +694,7 @@ int main(int argc, char* argv[]) {
          		if (info.dli_saddr == val) {
 	         		log_msg(LOG_INFO, "ELF_LOADER", "found symbol %s of size %d @ %p in loaded lib %s (%p)", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
 				int iter;
-				log_msg(LOG_INFO, "ELF_LOADER", "trying to replace %s symbol %s in shared libs from %p to %p\n", nm(type), sname, val, addr);
+				log_msg(LOG_INFO, "ELF_LOADER", "trying to replace %s symbol %s in shared libs from %p to %p", nm(type), sname, val, addr);
 				for (iter = 0; iter < library_count; iter++) { 
 					replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)addr);
 				}
