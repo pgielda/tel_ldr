@@ -19,9 +19,11 @@
 #include <time.h>
 
 #define COLORS 1
+//#define NO_LOGGING
 
 static void inner_log(char* source, const char* text, va_list argList, char *type, int color)
 {
+#ifndef NO_LOGGING
     char color_s[10];
     if (COLORS) {
             sprintf(color_s, "\x1b[1;%dm", color);
@@ -35,6 +37,7 @@ static void inner_log(char* source, const char* text, va_list argList, char *typ
     fprintf(stderr, "[%s%s%s @ %s] %s%s%s: ", COLORS ? color_s : "", type, COLORS ? "\x1b[0m" : "", Buff, COLORS ? "\x1b[1;37m" : "", source, COLORS ? "\x1b[21;39m" : "");
     vfprintf(stderr, text, argList);
     fprintf(stderr, "\n\r");
+#endif
 }
 
 #define LOG_WARNING "WRN", 95

@@ -31,6 +31,19 @@ int _IO_getc(FILE* __fp) {
 	return getc(__fp);
 }
 
+int _IO_putc(char c, FILE *__fp) {
+	return putc(c, __fp);
+}
+
+int __printf_chk(int flag, const char * format, ...) {
+	va_list ap;
+        int result;
+        va_start (ap, format);
+        result = vfprintf (stdout, format, ap);
+        va_end (ap);
+        return result;
+}
+
 int open64(const char *pathname, int flags) {
 	return open(pathname, flags);
 }
@@ -88,6 +101,11 @@ char *textdomain(const char *domainname)
 char *dcgettext(const char *domainname, const char *msgid, int category)
 {
 	return (char *) msgid;
+}
+
+char * dcngettext(const char * domainname, const char * msgid1, const char * msgid2, unsigned long int n, int category)
+{
+        return (n == 1) ? (char*)msgid1 : (char*)msgid2;
 }
 
 char *gettext(const char *msgid)
