@@ -34,7 +34,7 @@ static void inner_log(char* source, const char* text, va_list argList, char *typ
     time(&timer);
     tm_info = localtime(&timer);
     strftime(Buff, 9, "%H:%M:%S", tm_info);
-    fprintf(stderr, "[%s%s%s @ %s] %s%s%s: ", COLORS ? color_s : "", type, COLORS ? "\x1b[0m" : "", Buff, COLORS ? "\x1b[1;37m" : "", source, COLORS ? "\x1b[21;39m" : "");
+    fprintf(stderr, "[%s%s%s @ %s] %s%s%s: ", COLORS ? color_s : "", type, COLORS ? "\x1b[0m" : "", Buff, COLORS ? "\x1b[1;37m" : "", source, COLORS ? "\x1b[0m" : "");
     vfprintf(stderr, text, argList);
     fprintf(stderr, "\n\r");
 #endif
@@ -78,7 +78,7 @@ void replace_symbol(char *nm, uint32_t orig, uint32_t addr) {
                         dladdr((void*)orig, &info);
 			uint32_t *got = (uint32_t*)info.dli_fbase;
 			log_msg(LOG_INFO, "ELF_LOADER", "library %s @ %p, looking for 0x%08X, replace with 0x%08X", nm, got, orig, addr);
-			uint32_t count = 260000;
+			uint32_t count = 300000;
 			for (i = 0; i < count; i++) {
 				if (got[i] == (uint32_t)orig) {
 					mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
@@ -762,6 +762,7 @@ int main(int argc, char* argv[]) {
 
   g_argc = argc-1;
   g_argv = argv+1;
+
   log_msg(LOG_INFO, "APP", "our pid is %d", getpid());
   log_msg(LOG_INFO, "APP", "init");
   ((void*(*)())init)();
