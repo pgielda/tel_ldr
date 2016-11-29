@@ -653,6 +653,7 @@ int main(int argc, char* argv[]) {
             int k;
             for (k=0; T[k].n; k++) {
               if (!strcmp(sname,T[k].n)) {
+                 log_msg(LOG_INFO, "ELF_LOADER", "Overriding %s to builtin wrapper", sname);
                  val = T[k].f;
                  break;
               }
@@ -663,12 +664,10 @@ int main(int argc, char* argv[]) {
             }
 
 	    #ifdef __MACH__
-            if (!val) {
-                        if (!strcmp(sname, "stdin")) val = &stdin;
-                        if (!strcmp(sname, "stdout")) val = &stdout;
-                        if (!strcmp(sname, "stderr")) val = &stderr;
-			if (!strcmp(sname, "__environ")) val = (void*)_NSGetEnviron();
-            }
+            if (!strcmp(sname, "stdin")) val = &stdin;
+            if (!strcmp(sname, "stdout")) val = &stdout;
+            if (!strcmp(sname, "stderr")) val = &stderr;
+	    if (!strcmp(sname, "__environ")) val = (void*)_NSGetEnviron();
  	    #endif 
             log_msg(LOG_INFO, "ELF_LOADER", "%srel: %p %s(%d) (type=%d %s) => %p",
                    j ? "plt" : "", (void*)addr, sname, sym, type, nm(type), val);
