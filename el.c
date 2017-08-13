@@ -16,6 +16,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <libgen.h>
+//#include <time.h>
 
 #ifdef __linux__
 
@@ -25,7 +26,23 @@
 #elif __MACH__
 
 #include <crt_externs.h>
-void replace_symbol(char *nm, uint32_t addr, uint32_t val) {
+
+void replace_symbol(char *nm, uint32_t orig, uint32_t addr) {
+			int i;
+			Dl_info info;
+                        dladdr((void*)orig, &info);
+			uint32_t *got = (uint32_t*)((uint32_t)info.dli_fbase & 0xFFFF0000); //info.dli_fbase;
+			fprintf(stderr, "library %s @ %p (%X), looking for 0x%08X, replace with 0x%08X\n", nm, got, info.dli_fbase, orig, addr);
+			uint32_t count = 100000;
+			for (i = 0; i < count; i++) {
+				if (got[i] == (uint32_t)orig) {
+					fprintf(stderr, "found at 0x%X (%d)!!!\n", info.dli_fbase + i*4, i);
+					mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
+					got[i] = addr;
+					//mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
+					break;
+				}
+			}
 }
 
 char *libnm(char *nm) {
@@ -305,7 +322,7 @@ void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
 	uint32_t count = get_got_count(fname);
 	int i;
 	for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
-		printf("replacing the symbol in %s\n", fname);
+		fprintf(stderr, "replacing the symbol in %s\n", fname);
 		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
 		got[i] = (uint32_t)addr;
 		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
@@ -327,7 +344,7 @@ void hexdump(void *mem, unsigned int len)
                 /* print offset */
                 if(i % HEXDUMP_COLS == 0)
                 {
-                        printf("0x%06x: ", i);
+                        printf("0x%08x: ", (uint32_t)mem + i);
                 }
  
                 /* print hex data */
@@ -368,17 +385,18 @@ void hexdump(void *mem, unsigned int len)
 
 char* library_list[255];
 int library_count = 0;
-void add_library(char *nm) {
+int add_library(char *nm) {
 	int i;
-	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return;
-	if (!strncmp(basename(nm), "libsystem",9)) return;
-	if (!strncmp(basename(nm), "libc.", 5)) return; 
+	char *nm_b = strdup(basename(nm)); // TODO: missing free
+	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return 0;
+	if (!strncmp(nm_b, "libsystem",9)) return 0;
+	if (!strncmp(nm_b, "libc.", 5)) return 0; 
         Dl_info info;
         dladdr(add_library, &info);
-	if (!strcmp(basename(nm), basename((char*)info.dli_fname))) return;
-	// TODO: also omit itself!
+        if (!strcmp(nm_b, basename((char*)info.dli_fname))) return 0;
 	library_list[library_count] = strdup(nm);
 	library_count++;
+	return 1;
 }
 
 int main(int argc, char* argv[]) {
@@ -412,7 +430,6 @@ int main(int argc, char* argv[]) {
   entry = *(int*)(elf+24);
   phoff = *(int*)(elf+28);
   phnum = *(int*)(elf+42);
-  printf("%x %x %x\n", entry, phoff, phnum);
 
   ph = (int*)(elf + phoff);
   for (i = 0; i < phnum >> 16; i++) {
@@ -438,14 +455,13 @@ int main(int argc, char* argv[]) {
       paddr &= ~0xfff;
       pafsize = (pfsize + 0xfff) & ~0xfff;
       psize = (psize + 0xfff) & ~0xfff;
-      printf("PT_LOAD size=%d fsize=%d flag=%d addr=%x prot=%d poff=%d\n",
+      fprintf(stderr, "PT_LOAD size=%d fsize=%d flag=%d addr=%x prot=%d poff=%d\n",
              psize, pafsize, pflag, paddr, prot, poff);
       if (mmap((void*)paddr, pafsize, prot, MAP_FILE|MAP_PRIVATE|MAP_FIXED,
                fd, poff) == MAP_FAILED) {
         pr_error("mmap(file)");
       }
       if ((prot & PROT_WRITE)) {
-        printf("%p\n", (char*)paddr);
         for (; pfsize < pafsize; pfsize++) {
           char* p = (char*)paddr;
           p[pfsize] = 0;
@@ -461,12 +477,12 @@ int main(int argc, char* argv[]) {
       break;
     }
     case PT_INTERP: {
-		  printf("omitting PT_INTERP\n");
+		  fprintf(stderr, "omitting PT_INTERP\n");
 		  break;
 		    }
 
     case PT_PHDR: {
-		  printf("omitting PT_PHDR\n");
+		  fprintf(stderr, "omitting PT_PHDR\n");
 		  break;
 		  }
 
@@ -478,7 +494,6 @@ int main(int argc, char* argv[]) {
       char* pltrel = NULL;
       int relsz, relent, pltrelsz = 0;
       int needed[999] = {}, *neededp = needed;
-      puts("PT_DYNAMIC");
       dyn = elf + poff;
       
       for (;;) {
@@ -498,41 +513,41 @@ int main(int argc, char* argv[]) {
         }
         case DT_PLTRELSZ: {
           pltrelsz = dval;
-          printf("pltrelsz: %d\n", pltrelsz);
+          fprintf(stderr, "pltrelsz: %d\n", pltrelsz);
           break;
         }
 	case DT_STRTAB: {
           dstr = (char*)dval;
-          printf("dstr: %p %s\n", dstr, dstr+1);
+          fprintf(stderr, "dstr: %p %s\n", dstr, dstr+1);
           break;
         }
         case DT_SYMTAB: {
           dsym = (char*)dval;
-          printf("dsym: %p\n", dsym);
+          fprintf(stderr, "dsym: %p\n", dsym);
           break;
         }
         case DT_REL: {
           rel = (char*)dval;
-          printf("rel: %p\n", rel);
+          fprintf(stderr, "rel: %p\n", rel);
           break;
         }
         case DT_RELSZ: {
           relsz = dval;
-          printf("relsz: %d\n", relsz);
+          fprintf(stderr, "relsz: %d\n", relsz);
           break;
         }
         case DT_RELENT: {
           relent = dval;
-          printf("relent: %d\n", relent);
+          fprintf(stderr, "relent: %d\n", relent);
           break;
         }
         case DT_PLTREL: {
           pltrel = (char*)dval;
-          printf("pltrel: %p\n", pltrel);
+          fprintf(stderr, "pltrel: %p\n", pltrel);
           break;
         }
         default:
-          printf("unknown DYN dtag=%d dval=%X\n", dtag, dval);
+          fprintf(stderr, "unknown DYN dtag=%d dval=%X\n", dtag, dval);
         }
       }
 
@@ -541,12 +556,14 @@ int main(int argc, char* argv[]) {
       }
 
       for (neededp = needed; *neededp; neededp++) {
-        printf("needed: %s", dstr + *neededp);
+        fprintf(stderr, "needed: %s -> %s", dstr + *neededp, libnm(dstr+*neededp));
 	void *libpointer = dlopen(libnm(dstr + *neededp), RTLD_NOW | RTLD_GLOBAL);
         if (!libpointer) {
-		printf(" (not found)\n");
+		fprintf(stderr, " (not found)\n");
 	} else {
-		printf(" (loaded)\n");
+                Dl_info info;
+                dladdr(dlsym(libpointer, "start"), &info);
+		fprintf(stderr, " (loaded at %X)\n", info.dli_fbase);
 	}
       }
 
@@ -560,6 +577,7 @@ int main(int argc, char* argv[]) {
             int type = info & 0xff;
             int* ds = (int*)(dsym + 16 * sym);
 	    uint32_t *sz = (uint32_t*)(dsym + 16 * sym + 8);
+	    //uint32_t *sym_addr = (uint32_t*)(dsym + 16 * sym + 4);
             char* sname = dstr + *ds;
 
             void* val=0;
@@ -567,7 +585,7 @@ int main(int argc, char* argv[]) {
 	    if (val) {
 		Dl_info info;
                 dladdr(val, &info);
-		printf("Successfully resolved %s as %p @ %s of size %d\n", sname, val, info.dli_fname, *sz);
+		fprintf(stderr, "Successfully resolved %s as %p @ %s of size %d\n", sname, val, info.dli_fname, *sz);
 	        add_library((char*)info.dli_fname);
 	    }
 	}
@@ -582,21 +600,22 @@ int main(int argc, char* argv[]) {
             int* ds = (int*)(dsym + 16 * sym);
             char* sname = dstr + *ds;
 	    uint32_t *sz = (uint32_t*)(dsym + 16 * sym + 8);
+	    //uint32_t *sym_addr = (uint32_t*)(dsym + 16 * sym + 4);
             void* val=0;
             int k;
-            for(k=0;T[k].n;k++){
-              if(!strcmp(sname,T[k].n)){
+            for (k=0; T[k].n; k++) {
+              if (!strcmp(sname,T[k].n)) {
                  val = T[k].f;
                  break;
               }
             }
 
-            if(!val){
+            if (!val) {
 		val = dlsym(RTLD_DEFAULT, sname);
             }
 
 	    #ifdef __MACH__
-              if(!val) {
+            if (!val) {
                         if (!strcmp(sname, "stdin")) val = &stdin;
                         if (!strcmp(sname, "stdout")) val = &stdout;
                         if (!strcmp(sname, "stderr")) val = &stderr;
@@ -622,16 +641,15 @@ int main(int argc, char* argv[]) {
 	      i.e. move initialized data from a library down into the app data space */
               if (val) {
 		      memcpy((void*)addr, (void*)val, *sz);
-		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
+		      if ((val != &stdout) && (val != &stdin) && (val != &stderr) /*&& (*sz > 0)*/) {
 			      // very primitive got replacement
 			      Dl_info info;
 		              dladdr(val, &info);
-
          		if (info.dli_saddr == val) {
-	         		printf("found symbol %s of size %d @ %p in loaded lib %s (%p)\n", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
+	         		fprintf(stderr, "found symbol %s of size %d @ %p in loaded lib %s (%p)\n", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
 				int iter;
 				for (iter = 0; iter < library_count; iter++) { 
-					printf("trying to replace symbol in %s\n", library_list[iter]);
+					fprintf(stderr, "trying to replace symbol in %s\n", library_list[iter]);
 					replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)addr);
 				}
 
@@ -639,7 +657,7 @@ int main(int argc, char* argv[]) {
 		}
               } else {
                 fprintf(stderr, "undefined symbol %s\n", sname);
-		abort();
+		//abort();
               }
 	      break;
             }
