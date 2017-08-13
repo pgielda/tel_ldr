@@ -276,4 +276,12 @@ int endmntent(FILE *f)
 	fclose(f);
 	return 1;
 }
+
+void error(int status, int errnum, const char *format, ...) {
+  va_list ap;
+  va_start (ap, format);
+  vfprintf (stderr, format, ap);
+  va_end (ap);
+}
+
 #endif
