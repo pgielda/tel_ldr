@@ -343,12 +343,20 @@ static int section_by_name(int d, char const *section_name, Elf32_Shdr **section
     return 0;
 }
 
+void get_got(int descriptor, Elf32_Shdr **got) {
+    section_by_name(descriptor, ".got", got);
+    if (*got == NULL) section_by_name(descriptor, ".got.plt", got);
+}
+
 uint32_t get_got_addr(char *nm) {
 			void *libhandle =  dlopen(nm, RTLD_NOW | RTLD_GLOBAL);
 			void *lib = LIBRARY_ADDRESS_BY_HANDLE(libhandle);
                         int descriptor = open(nm, O_RDONLY);
                         Elf32_Shdr *got;
-                        section_by_name(descriptor, ".got", &got);
+			get_got(descriptor, &got);
+			if (got == NULL) {
+			    return 0;
+			}
 			close(descriptor);
                         void *got_table = (void *)(((size_t)lib) + got->sh_addr);
 			return (uint32_t)got_table;
@@ -357,14 +365,20 @@ uint32_t get_got_addr(char *nm) {
 uint32_t get_got_count(char *nm) {
 	int descriptor = open(nm, O_RDONLY);
 	Elf32_Shdr *got;
-	section_by_name(descriptor, ".got", &got);
+	get_got(descriptor, &got);
 	close(descriptor);
 	return got->sh_size;
 }
 
 void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
 	uint32_t *got = (uint32_t*)get_got_addr(fname);
+	if (got == NULL) {
+	        log_msg(LOG_ERROR, "ELF_LOADER", "%s has no .got table", fname);
+		return;
+	}
+
 	uint32_t count = get_got_count(fname);
+
 	int i;
 	for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
 		log_msg(LOG_INFO, "ELF_LOADER", "replacing the symbol in %s", fname);
@@ -686,9 +700,9 @@ int main(int argc, char* argv[]) {
             case R_386_COPY: { // 5
 	    /*R_386_COPY	read a string of bytes from the "symbol" address and deposit a copy into this location; the "symbol" object has an intrinsic length 
 	      i.e. move initialized data from a library down into the app data space */
-              if (val) {
+              if (val && *sz) {
 		      memcpy((void*)addr, (void*)val, *sz);
-		      if ((val != &stdout) && (val != &stdin) && (val != &stderr) && (*sz > 0)) {
+		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
 			      // very primitive got replacement
 			      Dl_info info;
 		              dladdr(val, &info);
@@ -697,9 +711,12 @@ int main(int argc, char* argv[]) {
 	         		log_msg(LOG_INFO, "ELF_LOADER", "found symbol %s of size %d @ %p in loaded lib %s (%p)", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
 				int iter;
 				log_msg(LOG_INFO, "ELF_LOADER", "trying to replace %s symbol %s in shared libs from %p to %p", nm(type), sname, val, addr);
-				for (iter = 0; iter < library_count; iter++) { 
+				for (iter = 0; iter < library_count; iter++) {
+				        log_msg(LOG_INFO, "ELF_LOADER", "Iterating over library %s (%d)", library_list[iter], iter);
 					replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)addr);
 				}
+				log_msg(LOG_INFO, "ELF_LOADER", "done replacing %s symbol %s in shared libs from %p to %p", nm(type), sname, val, addr);
+
 
 			}
 		}
