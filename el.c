@@ -655,8 +655,10 @@ int main(int argc, char* argv[]) {
       }
 
       {
+
         int i, j;
 	char* oldrel = rel;
+	#if !__linux__
         for (j = 0; j < 2; j++) for (i = 0; i < relsz; rel += relent, i += relent) {
             int* addr = *(int**)rel;
             int info = *(int*)(rel + 4);
@@ -672,6 +674,7 @@ int main(int argc, char* argv[]) {
 		Dl_info info;
                 dladdr(val, &info);
 		add_library((char*)info.dli_fname);
+		#if 0
                 if (*sym_addr) {
                         log_msg(LOG_ERROR, "ELF_LOADER", "symbol %s '%s' : there is a conflict (%s@%p vs %p)", nm(type), sname, info.dli_fname,val, *sym_addr);
                                 int iter;
@@ -684,9 +687,11 @@ int main(int argc, char* argv[]) {
 //			replace_symbol(info.dli_fname, (uint32_t)val, (uint32_t)*sym_addr);
                 }
 		log_msg(LOG_INFO, "ELF_LOADER", "Successfully resolved %s as %p @ %s of size %d", sname, val, info.dli_fname, *sz);
+		#endif
 	    }
 	}
 	rel = oldrel;
+	#endif
         for (j = 0; j < 2; j++) {
           for (i = 0; i < relsz; rel += relent, i += relent) {
             int* addr = *(int**)rel;
