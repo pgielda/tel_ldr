@@ -3,9 +3,6 @@
 //
 
 #define _GNU_SOURCE
-
-#include <link.h>
-
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -465,7 +462,7 @@ int add_library(char *nm) {
 	char nm_b[255];
 	strcpy(nm_b, basename(nm));
 	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return 0;
-//	if (!strncmp(nm_b, "libsystem",9)) return 0;
+	if (!strncmp(nm_b, "libsystem",9)) return 0;
 //	if (!strncmp(nm_b, "libc.", 5)) return 0;
         Dl_info info;
         dladdr(add_library, &info);
@@ -641,19 +638,18 @@ int main(int argc, char* argv[]) {
 		log_msg(LOG_WARNING, "ELF_LOADER", "Library %s not found", dstr + *neededp);
 	} else {
 		log_msg(LOG_INFO, "ELF_LOADER", "Library %s loaded", dstr+*neededp);
+		#if __linux__
 		struct link_map *p;
 		dlinfo(libpointer, RTLD_DI_LINKMAP, (struct link_map*)&p);
 		add_library(p->l_name);
+		#endif
 	}
       }
 
       {
         int i, j;
 	char* oldrel = rel;
-	#if 0
         for (j = 0; j < 2; j++) for (i = 0; i < relsz; rel += relent, i += relent) {
-	log_msg(LOG_INFO, "ELF_LOADER", "NOW HIR j=%d i=%d relsz=%d relent=%d",j ,i, relsz, relent);
-
             int* addr = *(int**)rel;
             int info = *(int*)(rel + 4);
             int sym = info >> 8;
@@ -662,22 +658,18 @@ int main(int argc, char* argv[]) {
 	    uint32_t *sz = (uint32_t*)(dsym + 16 * sym + 8);
 	    uint32_t *sym_addr = (uint32_t*)(dsym + 16 * sym + 4);
             char* sname = dstr + *ds;
-        log_msg(LOG_ERROR, "ELF_LOADER", "type = %d symbol sname = %p *ds=%d", type, sname, *ds);
-
             void* val=0;
 	    val = dlsym(RTLD_DEFAULT, sname);
-	     log_msg(LOG_ERROR, "ELF_LOADER", "symbol");
-
 	    if (val) {
 		Dl_info info;
                 dladdr(val, &info);
-		//add_library((char*)info.dli_fname);
+		add_library((char*)info.dli_fname);
                 if (*sym_addr) {
                         log_msg(LOG_ERROR, "ELF_LOADER", "symbol %s '%s' : there is a conflict (%s@%p vs %p)", nm(type), sname, info.dli_fname,val, *sym_addr);
                                 int iter;
                                 for (iter = 0; iter < library_count; iter++) {
                                         log_msg(LOG_INFO, "ELF_LOADER", "Iterating over library %s (%d)", library_list[iter], iter);
-                                        replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)*sym_addr);
+                //                        replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)*sym_addr);
                                 }
 
 
@@ -687,7 +679,6 @@ int main(int argc, char* argv[]) {
 	    }
 	}
 	rel = oldrel;
-	#endif
         for (j = 0; j < 2; j++) {
           for (i = 0; i < relsz; rel += relent, i += relent) {
             int* addr = *(int**)rel;

@@ -1,7 +1,7 @@
 UNAME=$(shell uname)
 
 CFLAGS=-m32
-LDFLAGS+=-rdynamic
+LDFLAGS+=-rdynamic -lstdc++
 ifeq ($(UNAME),Linux)
 	LDFLAGS+=-ldl
 	LDFLAGS+=-lstdc++
