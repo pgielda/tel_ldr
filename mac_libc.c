@@ -60,9 +60,6 @@ int __fxstat64(int vers, int fd, struct stat *buf) {
 void __uflow() {
 }
 
-void error() {
-}
-
 int __fxstatat64(int vers, int fd, struct stat *buf) {
 // TODO: wrong!!!
     return __fxstat64(vers, fd, buf);
