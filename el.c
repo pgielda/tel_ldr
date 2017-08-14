@@ -136,6 +136,10 @@ void* add_function(char *name, uint32_t pointer) {
 	functions[function_count].name = strdup(name);
 	functions[function_count].pointer = pointer;
 	function_count++;
+	if (function_count > 8000) {
+		printf("problem!\n");
+		exit(1);
+	}
 	return pointers[function_count-1];
 }
 
@@ -147,9 +151,7 @@ int H__libc_start_main(int (*m)(int, char**, char**),
     argc = g_argc;
     argv = g_argv;
   }
-  printf("entering H__libc_start_main argc=%d\n", argc);
   int result = m(argc, argv, 0);
-  printf("finished with %d\n", result);
   exit(result);
 }
 
@@ -636,6 +638,7 @@ int main(int argc, char* argv[]) {
 
       for (neededp = needed; *neededp; neededp++) {
         log_msg(LOG_INFO, "ELF_LOADER", "shared library needed: %s", dstr + *neededp);
+	//if (strncmp(dstr + *neededp, "libc.so.6", 9) == 0) continue;
 	void *libpointer = dlopen(libnm(dstr + *neededp), RTLD_NOW | RTLD_GLOBAL);
         if (!libpointer) {
 		log_msg(LOG_WARNING, "ELF_LOADER", "Library %s not found", dstr + *neededp);
@@ -729,7 +732,7 @@ int main(int argc, char* argv[]) {
 	      } else {
 	        log_msg(LOG_WARNING, "ELF_LOADER", "undefined relocation %s\n", sname);
 		*addr = 0;
-		abort();
+//		abort();
 	      }
 	      break;
             }
@@ -819,11 +822,15 @@ int main(int argc, char* argv[]) {
 
   g_argc = argc-1;
   g_argv = argv+1;
-
+  log_msg(LOG_INFO, "APP", "function count is %d", function_count);
   log_msg(LOG_INFO, "APP", "our pid is %d", getpid());
-  log_msg(LOG_INFO, "APP", "init");
-  ((void*(*)())init)();
+  if (init != 0) {
+	  log_msg(LOG_INFO, "APP", "init");
+	  ((void*(*)())init)();
+  }
   log_msg(LOG_INFO, "APP", "start!: %s entry=%x", argv[1], entry);
+  log_msg(LOG_INFO, "APP", "==============================================");
+
   ((void*(*)(int, char**))entry)(argc, argv);
   // we should never return here
   return 1;
