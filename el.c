@@ -3,6 +3,11 @@
 //
 
 #define _GNU_SOURCE
+
+#if __linux__
+#include <link.h>
+#endif
+
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
