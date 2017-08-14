@@ -4,6 +4,7 @@ CFLAGS=-m32
 LDFLAGS+=-rdynamic
 ifeq ($(UNAME),Linux)
 	LDFLAGS+=-ldl
+	LDFLAGS+=-lstdc++
 	LDFLAGS+=-Wl,-Ttext-segment=0x2000000
 endif
 

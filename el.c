@@ -3,6 +3,9 @@
 //
 
 #define _GNU_SOURCE
+
+#include <link.h>
+
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -113,6 +116,17 @@ typedef struct {
 } function_t;
 
 function_t functions[8000];
+
+extern char* __cxa_demangle(const char* mangled_name, char* output_buffer, size_t* length, int* status);
+
+
+// TODO: this eats memory !
+char *fancy_name(char *s) {
+	int status;
+	char *res = __cxa_demangle(s, NULL, NULL, &status);
+	if (res == NULL) return s;
+	return res;
+}
 
 #define DEBUG
 #include "undef.h"
@@ -379,6 +393,7 @@ void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
 	}
 
 	uint32_t count = get_got_count(fname);
+	log_msg(LOG_ERROR, "ELF_LOADER", "Trying to replace 0x%08X with 0x%08X", orig, addr);
 
 	int i;
 	for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
@@ -459,6 +474,8 @@ int add_library(char *nm) {
 	library_count++;
 	return 1;
 }
+
+int gg = 0;
 
 int main(int argc, char* argv[]) {
   int i;
@@ -624,13 +641,19 @@ int main(int argc, char* argv[]) {
 		log_msg(LOG_WARNING, "ELF_LOADER", "Library %s not found", dstr + *neededp);
 	} else {
 		log_msg(LOG_INFO, "ELF_LOADER", "Library %s loaded", dstr+*neededp);
+		struct link_map *p;
+		dlinfo(libpointer, RTLD_DI_LINKMAP, (struct link_map*)&p);
+		add_library(p->l_name);
 	}
       }
 
       {
         int i, j;
 	char* oldrel = rel;
+	#if 0
         for (j = 0; j < 2; j++) for (i = 0; i < relsz; rel += relent, i += relent) {
+	log_msg(LOG_INFO, "ELF_LOADER", "NOW HIR j=%d i=%d relsz=%d relent=%d",j ,i, relsz, relent);
+
             int* addr = *(int**)rel;
             int info = *(int*)(rel + 4);
             int sym = info >> 8;
@@ -639,20 +662,32 @@ int main(int argc, char* argv[]) {
 	    uint32_t *sz = (uint32_t*)(dsym + 16 * sym + 8);
 	    uint32_t *sym_addr = (uint32_t*)(dsym + 16 * sym + 4);
             char* sname = dstr + *ds;
+        log_msg(LOG_ERROR, "ELF_LOADER", "type = %d symbol sname = %p *ds=%d", type, sname, *ds);
 
             void* val=0;
 	    val = dlsym(RTLD_DEFAULT, sname);
+	     log_msg(LOG_ERROR, "ELF_LOADER", "symbol");
+
 	    if (val) {
 		Dl_info info;
                 dladdr(val, &info);
+		//add_library((char*)info.dli_fname);
                 if (*sym_addr) {
                         log_msg(LOG_ERROR, "ELF_LOADER", "symbol %s '%s' : there is a conflict (%s@%p vs %p)", nm(type), sname, info.dli_fname,val, *sym_addr);
+                                int iter;
+                                for (iter = 0; iter < library_count; iter++) {
+                                        log_msg(LOG_INFO, "ELF_LOADER", "Iterating over library %s (%d)", library_list[iter], iter);
+                                        replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)*sym_addr);
+                                }
+
+
+//			replace_symbol(info.dli_fname, (uint32_t)val, (uint32_t)*sym_addr);
                 }
 		log_msg(LOG_INFO, "ELF_LOADER", "Successfully resolved %s as %p @ %s of size %d", sname, val, info.dli_fname, *sz);
-	        add_library((char*)info.dli_fname);
 	    }
 	}
 	rel = oldrel;
+	#endif
         for (j = 0; j < 2; j++) {
           for (i = 0; i < relsz; rel += relent, i += relent) {
             int* addr = *(int**)rel;
@@ -702,8 +737,10 @@ int main(int argc, char* argv[]) {
 	    /*R_386_COPY	read a string of bytes from the "symbol" address and deposit a copy into this location; the "symbol" object has an intrinsic length 
 	      i.e. move initialized data from a library down into the app data space */
               if (val) {
-	              if (*sz > 0)
+	              if (*sz > 0) {
    		         memcpy((void*)addr, (void*)val, *sz);
+			 } else log_msg(LOG_ERROR, "ELF_LOADER", "symbol %s has size 0", sname);
+
 		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
 			      // very primitive got replacement
 			      Dl_info info;
@@ -722,6 +759,7 @@ int main(int argc, char* argv[]) {
 
 			}
 		}
+
               } else {
                 log_msg(LOG_ERROR, "ELF_LOADER", "undefined symbol %s", sname);
 		abort();
