@@ -133,6 +133,7 @@ int H__libc_start_main(int (*m)(int, char**, char**),
     argc = g_argc;
     argv = g_argv;
   }
+  printf("entering H__libc_start_main argc=%d\n", argc);
   int result = m(argc, argv, 0);
   printf("finished with %d\n", result);
   exit(result);
@@ -449,8 +450,8 @@ int add_library(char *nm) {
 	char nm_b[255];
 	strcpy(nm_b, basename(nm));
 	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return 0;
-	if (!strncmp(nm_b, "libsystem",9)) return 0;
-	if (!strncmp(nm_b, "libc.", 5)) return 0;
+//	if (!strncmp(nm_b, "libsystem",9)) return 0;
+//	if (!strncmp(nm_b, "libc.", 5)) return 0;
         Dl_info info;
         dladdr(add_library, &info);
         if (!strcmp(nm_b, basename((char*)info.dli_fname))) return 0;
@@ -485,7 +486,7 @@ int main(int argc, char* argv[]) {
    pr_error("not i386 exec");
   }
 
-  __progname = strdup(argv[0]);
+  __progname = strdup(argv[1]);
   __progname_full = strdup(argv[1]);
 
   entry = *(int*)(elf+24);
@@ -700,8 +701,9 @@ int main(int argc, char* argv[]) {
             case R_386_COPY: { // 5
 	    /*R_386_COPY	read a string of bytes from the "symbol" address and deposit a copy into this location; the "symbol" object has an intrinsic length 
 	      i.e. move initialized data from a library down into the app data space */
-              if (val && *sz) {
-		      memcpy((void*)addr, (void*)val, *sz);
+              if (val) {
+	              if (*sz > 0)
+   		         memcpy((void*)addr, (void*)val, *sz);
 		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
 			      // very primitive got replacement
 			      Dl_info info;
@@ -783,7 +785,7 @@ int main(int argc, char* argv[]) {
   log_msg(LOG_INFO, "APP", "our pid is %d", getpid());
   log_msg(LOG_INFO, "APP", "init");
   ((void*(*)())init)();
-  log_msg(LOG_INFO, "APP", "start!: %s %x", argv[1], entry);
+  log_msg(LOG_INFO, "APP", "start!: %s entry=%x", argv[1], entry);
   ((void*(*)(int, char**))entry)(argc, argv);
   // we should never return here
   return 1;
