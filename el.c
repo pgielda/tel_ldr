@@ -77,7 +77,7 @@ void vlog_msg(char *type, int color, char* source, const char* text, va_list arg
 
 #include <crt_externs.h>
 
-void replace_symbol(char *nm, uint32_t orig, uint32_t addr) {
+void replace_symbol(char *nm, uint32_t orig, uint32_t addr, char *sname) {
 			int i;
 			Dl_info info;
                         dladdr((void*)orig, &info);
@@ -154,6 +154,7 @@ int H__libc_start_main(int (*m)(int, char**, char**),
     argv = g_argv;
   }
   int result = m(argc, argv, 0);
+  log_msg(LOG_INFO, "APP", "==============================================");
   exit(result);
 }
 
@@ -362,51 +363,116 @@ static int section_by_name(int d, char const *section_name, Elf32_Shdr **section
     return 0;
 }
 
-void get_got(int descriptor, Elf32_Shdr **got) {
-    section_by_name(descriptor, ".got", got);
-    if (*got == NULL) section_by_name(descriptor, ".got.plt", got);
+void get_got(int descriptor, Elf32_Shdr **got, char *pltnm) {
+    section_by_name(descriptor, pltnm, got);
 }
 
-uint32_t get_got_addr(char *nm) {
-			void *libhandle =  dlopen(nm, RTLD_NOW | RTLD_GLOBAL);
+uint32_t get_got_addr(char *nm, char *pltnm) {
+			void *libhandle =  dlopen(nm, RTLD_NOW | RTLD_LOCAL);
 			void *lib = LIBRARY_ADDRESS_BY_HANDLE(libhandle);
                         int descriptor = open(nm, O_RDONLY);
                         Elf32_Shdr *got;
-			get_got(descriptor, &got);
+			get_got(descriptor, &got, pltnm);
 			if (got == NULL) {
 			    return 0;
 			}
 			close(descriptor);
-                        void *got_table = (void *)(((size_t)lib) + got->sh_addr);
+                        void *got_table = (void *)(((uint32_t)lib) + got->sh_addr);
 			return (uint32_t)got_table;
 }
 
-uint32_t get_got_count(char *nm) {
+uint32_t get_got_count(char *nm, char *pltnm) {
 	int descriptor = open(nm, O_RDONLY);
 	Elf32_Shdr *got;
-	get_got(descriptor, &got);
+	get_got(descriptor, &got, pltnm);
 	close(descriptor);
-	return got->sh_size;
+	return (got->sh_size/got->sh_entsize);
 }
 
-void replace_symbol(char *fname, uint32_t orig, uint32_t addr) {
-	uint32_t *got = (uint32_t*)get_got_addr(fname);
-	if (got == NULL) {
-	        log_msg(LOG_ERROR, "ELF_LOADER", "%s has no .got table", fname);
-		return;
+static inline Elf32_Shdr *elf_sheader(Elf32_Ehdr *hdr) {
+	return (Elf32_Shdr *)((int)hdr + hdr->e_shoff);
+}
+
+static inline Elf32_Shdr *elf_section(Elf32_Ehdr *hdr, int idx) {
+	return &elf_sheader(hdr)[idx];
+}
+
+int replace_symbol(char *fname, uint32_t orig, uint32_t addr, char *sname) {
+        void *libhandle =  dlopen(fname, RTLD_NOW | RTLD_LOCAL);
+	void *lib = LIBRARY_ADDRESS_BY_HANDLE(libhandle);
+        void *val = dlsym(libhandle, sname);
+	if (!val) return 0;
+	log_msg(LOG_INFO, "ELF_LOADER", "Symbol '%s' exists in library '%s' under ptr '%p' (0x%08X)", sname, basename(fname), val, val - (uint32_t)lib);
+	if ((uint32_t)val != orig) {
+		log_msg(LOG_ERROR, "ELF_LOADER", "There is a difference between pointers for symbol '%s'", sname);
+	}
+        int replaced = 0;
+
+	uint32_t *got;
+	uint32_t count;
+	char section[255];
+	strcpy(section, ".got");
+
+        Elf32_Shdr *symtab;
+	int descriptor = open(fname, O_RDONLY);
+	Elf_Ehdr *header = NULL;
+	Elf32_Shdr *sections = NULL;
+	char const *strings = NULL;
+
+        read_header(descriptor, &header);
+        read_section_table(descriptor, header, &sections);
+	get_got(descriptor, &symtab, ".dynsym");
+        read_string_table(descriptor, &sections[symtab->sh_link], &strings);
+
+
+	uint32_t symtab_entries = symtab->sh_size / symtab->sh_entsize;
+	got = (uint32_t*)get_got_addr(fname, section);
+
+	uint32_t symaddr = (int)lib + symtab->sh_offset;
+	for (int i = 0; i < symtab_entries; i++) {
+
+	Elf32_Sym *symbol = &((Elf32_Sym *)symaddr)[i];
+
+        char *nm = (char *)((uint32_t)strings + (uint32_t)symbol->st_name);
+	if (strcmp(nm, sname) == 0) {
+	        log_msg(LOG_INFO, "ELF_LOADER", "symbol %d %s %X size %d ind=%d other=%d", i, nm, symbol->st_value, symbol->st_size, symbol->st_shndx, symbol->st_other);
+	}
 	}
 
-	uint32_t count = get_got_count(fname);
-	log_msg(LOG_ERROR, "ELF_LOADER", "Trying to replace 0x%08X with 0x%08X", orig, addr);
+	got = (uint32_t*)get_got_addr(fname, section);
+	count = get_got_count(fname, section);
 
-	int i;
-	for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
-		log_msg(LOG_INFO, "ELF_LOADER", "replacing the symbol in %s", fname);
-		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
-		got[i] = (uint32_t)addr;
-		mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
-		break;
+	if (got != NULL) {
+		log_msg(LOG_INFO, "ELF_LOADER", "trying to replace symbol '%s' addr 0x%08X with 0x%08X in library '%s' in section '%s' (%d entries)", sname, orig, addr, basename(fname), section, count);
+			int i;
+		for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
+			log_msg(LOG_INFO, "ELF_LOADER", "replacing the symbol '%s' in %s in .got (at position %d addr 0x%08X)", sname, basename(fname), i, (uint32_t)got + i *4);
+			mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
+			got[i] = (uint32_t)addr;
+			mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
+			replaced++;
+		} 
+
 	}
+	if (replaced > 1) {
+		log_msg(LOG_ERROR, "ELF_LOADER", "symbol '%s' got replaced more than once!", sname);
+	}
+/*
+	got = (uint32_t*)get_got_addr(fname, ".plt.got");
+        if (got != NULL) {
+		uint32_t count = get_got_count(fname, ".plt.got");
+		log_msg(LOG_ERROR, "ELF_LOADER", "Trying to replace 0x%08X with 0x%08X", orig, addr);
+		int i;
+		for (i = 0; i < count; i++)  if (got[i] == (uint32_t)orig) {
+			log_msg(LOG_INFO, "ELF_LOADER", "replacing the symbol '%s' in %s in .got.plt", sname, fname);
+			mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ | PROT_WRITE);
+			got[i] = (uint32_t)addr;
+			mprotect((void*)((uint32_t)(&(got[i])) & 0xFFFFF000), 0x1000, PROT_READ);
+			replaced++;
+		}
+	}
+*/	
+	return replaced;
 }
 #endif
 
@@ -463,37 +529,42 @@ void hexdump(void *mem, unsigned int len)
 /// end of taken
 
 char* library_list[255];
+void* library_list_pointers[255];
 int library_count = 0;
-int add_library(char *nm) {
+int add_library(char *nm, void *ptr) {
 	int i;
 	char nm_b[255];
 	strcpy(nm_b, basename(nm));
 	for (i = 0; i < library_count; i++) if (!strcmp(library_list[i], nm)) return 0;
 	if (!strncmp(nm_b, "libsystem",9)) return 0;
-//	if (!strncmp(nm_b, "libc.", 5)) return 0;
+	if (!strncmp(nm_b, "ld-linux", 8)) return 0;
         Dl_info info;
         dladdr(add_library, &info);
         if (!strcmp(nm_b, basename((char*)info.dli_fname))) return 0;
 	library_list[library_count] = strdup(nm);
+	library_list_pointers[library_count] = ptr;
 	library_count++;
 	return 1;
 }
 
 int gg = 0;
 
-int main(int argc, char* argv[]) {
+void test() {
+	exit(1);
+}
+
+int do_debug = 0;
+
+int load_elf(char *fname, int*rinit) {
   int i;
   int fd, len;
   int cnt = 0;
   char* elf;
   int entry, phoff, phnum, init;
   int* ph;
-  if (argc < 2)
-    pr_error("Usage: el <elf>");
-  log_msg(LOG_INFO, "APP", "loading %s", argv[1]);
-  fd = open(argv[1], O_RDONLY);
-  if (fd < 0)
-    pr_error("Usage: el <elf>");
+
+  log_msg(LOG_WARNING, "load_elf", "Loading %s", fname);
+  fd = open(fname, O_RDONLY);
   len = lseek(fd, 0, SEEK_END);
   elf = malloc(len);
   lseek(fd, 0, SEEK_SET);
@@ -506,9 +577,6 @@ int main(int argc, char* argv[]) {
    close(fd);
    pr_error("not i386 exec");
   }
-
-  __progname = strdup(argv[1]);
-  __progname_full = strdup(argv[1]);
 
   entry = *(int*)(elf+24);
   phoff = *(int*)(elf+28);
@@ -640,8 +708,7 @@ int main(int argc, char* argv[]) {
 
       for (neededp = needed; *neededp; neededp++) {
         log_msg(LOG_INFO, "ELF_LOADER", "shared library needed: %s", dstr + *neededp);
-	//if (strncmp(dstr + *neededp, "libc.so.6", 9) == 0) continue;
-	void *libpointer = dlopen(libnm(dstr + *neededp), RTLD_NOW | RTLD_GLOBAL);
+	void *libpointer = dlopen(libnm(dstr + *neededp), RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
         if (!libpointer) {
 		log_msg(LOG_WARNING, "ELF_LOADER", "Library %s not found", dstr + *neededp);
 	} else {
@@ -649,7 +716,7 @@ int main(int argc, char* argv[]) {
 		#if __linux__
 		struct link_map *p;
 		dlinfo(libpointer, RTLD_DI_LINKMAP, (struct link_map*)&p);
-		add_library(p->l_name);
+		add_library(p->l_name, libpointer);
 		#endif
 	}
       }
@@ -679,7 +746,7 @@ int main(int argc, char* argv[]) {
                         log_msg(LOG_ERROR, "ELF_LOADER", "symbol %s '%s' : there is a conflict (%s@%p vs %p)", nm(type), sname, info.dli_fname,val, *sym_addr);
                                 int iter;
                                 for (iter = 0; iter < library_count; iter++) {
-                                        log_msg(LOG_INFO, "ELF_LOADER", "Iterating over library %s (%d)", library_list[iter], iter);
+                                        lonng_msg(LOG_INFO, "ELF_LOADER", "Iterating over library %s (%d)", library_list[iter], iter);
                 //                        replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)*sym_addr);
                                 }
 
@@ -705,6 +772,7 @@ int main(int argc, char* argv[]) {
 	    uint32_t *sym_addr = (uint32_t*)(dsym + 16 * sym + 4);
             void* val=0;
             int k;
+
             for (k=0; T[k].n; k++) {
               if (!strcmp(sname,T[k].n)) {
                  log_msg(LOG_INFO, "ELF_LOADER", "Overriding %s to builtin wrapper", sname);
@@ -713,9 +781,20 @@ int main(int argc, char* argv[]) {
               }
             }
 
+            if (rinit == NULL) {
+	     val = 0;
+	    } else {
             if (!val) {
-		val = dlsym(RTLD_DEFAULT, sname);
+	//	val = dlsym(RTLD_DEFAULT, sname);
             }
+	    if (!val) {
+	    	int iter;
+		for (iter = 0; iter < library_count; iter++) {
+			val = dlsym(library_list_pointers[iter], sname);
+			if (val) break;
+		}
+	    }
+	    }
 
 	    #ifdef __MACH__
             if (!strcmp(sname, "stdin")) val = &stdin;
@@ -723,6 +802,8 @@ int main(int argc, char* argv[]) {
             if (!strcmp(sname, "stderr")) val = &stderr;
 	    if (!strcmp(sname, "__environ")) val = (void*)_NSGetEnviron();
  	    #endif 
+	    //if (!strcmp(sname, "__environ")) val = &__environ;
+
             log_msg(LOG_INFO, "ELF_LOADER", "%srel: %p %s(%d) (type=%d %s) => %p",
                    j ? "plt" : "", (void*)addr, sname, sym, type, nm(type), val);
 
@@ -731,7 +812,7 @@ int main(int argc, char* argv[]) {
 	      if (val) {
                 *addr = (int)val;
 	      } else {
-	        log_msg(LOG_WARNING, "ELF_LOADER", "undefined relocation %s\n", sname);
+	        log_msg(LOG_WARNING, "ELF_LOADER", "undefined relocation %s", sname);
 		*addr = 0;
 //		abort();
 	      }
@@ -745,7 +826,7 @@ int main(int argc, char* argv[]) {
    		         memcpy((void*)addr, (void*)val, *sz);
 			 } else log_msg(LOG_ERROR, "ELF_LOADER", "symbol %s has size 0", sname);
 
-		      if ((val != &stdout) && (val != &stdin) && (val != &stderr)) {
+		      if ((val != &stdout) && (val != &stdin) && (val != &stderr) && (val != &__environ)) {
 			      // very primitive got replacement
 			      Dl_info info;
 		              dladdr(val, &info);
@@ -754,11 +835,15 @@ int main(int argc, char* argv[]) {
 	         		log_msg(LOG_INFO, "ELF_LOADER", "found symbol %s of size %d @ %p in loaded lib %s (%p)", info.dli_sname, *sz, val, info.dli_fname, info.dli_fbase);
 				int iter;
 				log_msg(LOG_INFO, "ELF_LOADER", "trying to replace %s symbol %s in shared libs from %p to %p", nm(type), sname, val, addr);
+				int replaced = 0;
 				for (iter = 0; iter < library_count; iter++) {
 				        log_msg(LOG_INFO, "ELF_LOADER", "Iterating over library %s (%d)", library_list[iter], iter);
-					replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)addr);
+					replaced += replace_symbol(library_list[iter], (uint32_t)val, (uint32_t)addr, sname);
 				}
-				log_msg(LOG_INFO, "ELF_LOADER", "done replacing %s symbol %s in shared libs from %p to %p", nm(type), sname, val, addr);
+				log_msg(LOG_INFO, "ELF_LOADER", "done replacing %s symbol %s in shared libs from %p to %p, %d replaces occured", nm(type), sname, val, addr, replaced);
+				if (replaced == 0) {
+					log_msg(LOG_ERROR, "ELF_LOADER", "There is a problem with symbol '%s'", sname);
+				}
 
 
 			}
@@ -782,7 +867,7 @@ int main(int argc, char* argv[]) {
               } else {
                       log_msg(LOG_ERROR, "ELF_LOADER", "undefined global data %s of size %d (cnt=%d)", sname, *sz, cnt);
 		      if (strcmp(sname, "__gmon_start__")) {
-			      abort();
+		//	      abort();
 		      }
 #if 0
 		if (strcmp(sname, "__gmon_start__")) {
@@ -796,8 +881,8 @@ int main(int argc, char* argv[]) {
               break;
             }
             case R_386_JMP_SLOT: {
-              if (!val) log_msg(LOG_WARNING, "ELF_LOADER", "undefined function %s", sname);
-              *addr = (int)add_function(sname, (uint32_t)val);
+              if (!val) log_msg(LOG_ERROR, "ELF_LOADER", "undefined function %s", sname);
+	      *addr = do_debug ? (int)add_function(sname, (uint32_t)val) : (int)val;
               break;
             }
 	   }
@@ -821,9 +906,28 @@ int main(int argc, char* argv[]) {
     ph += 8;
   }
 
+  log_msg(LOG_INFO, "APP", "function count is %d", function_count);
+  
+  if (rinit != NULL) *rinit = init;
+  return entry;
+}
+
+int main(int argc, char* argv[]) {
+  int init, entry;
+  if (argc < 2)
+    pr_error("Usage: el <elf>");
+  log_msg(LOG_INFO, "APP", "loading %s", argv[1]);
+
+  __progname = strdup(argv[1]);
+  __progname_full = strdup(argv[1]);
+
+  //load_elf("./gentoo32/lib/libc-2.23.so", NULL);
+  entry = load_elf(argv[1], &init); 
+
+
   g_argc = argc-1;
   g_argv = argv+1;
-  log_msg(LOG_INFO, "APP", "function count is %d", function_count);
+
   log_msg(LOG_INFO, "APP", "our pid is %d", getpid());
   if (init != 0) {
 	  log_msg(LOG_INFO, "APP", "init");
